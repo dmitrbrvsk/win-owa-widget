@@ -26,7 +26,7 @@ export function Popup({ snap }: { snap: Snapshot }) {
   const today = startOfDay(now);
   const [day, setDay] = useState(today);
   const [open, setOpen] = useState<CalendarEvent | null>(null);
-  const [invitesOpen, setInvitesOpen] = useState(true);
+  const [invitesOpen, setInvitesOpen] = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   // A new day starts: follow it if the user was looking at "today".

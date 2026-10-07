@@ -49,8 +49,8 @@ export function Reminder({ snap }: { snap: Snapshot }) {
       </div>
       {events.map((e) => (
         <div className={`item${events.length > 1 ? ' stack' : ''}`} key={e.id} style={{ ['--c' as string]: eventColor(e) }}>
-          <div className="grow">
-            <div className="name nowrap">{displayTitle(e)}</div>
+          <div>
+            <div className="name">{displayTitle(e)}</div>
             <div className="sec tnum nowrap">
               {range(e.start, e.end, lang)}
               {e.organizer ? ` · ${e.organizer}` : ''}

@@ -14,6 +14,7 @@ import {
   Tray,
 } from 'electron';
 import { execFile } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
 import { IPC, type ReminderPayload, type SettingsUpdate, type Snapshot, type TrayStatus, type CalendarEvent } from '../shared/types';
 import { joinCandidates, joinUrlForActions, displayTitle } from '../shared/events';
 import { safeUrl } from '../shared/meetingUrl';
@@ -194,8 +195,11 @@ function updateTrayMenu() {
   );
 }
 
+let lastTooltip = '';
+
 function setTrayStatus(status: TrayStatus) {
   if (!tray) return;
+  lastTooltip = status.tooltip;
   const img = nativeImage.createFromDataURL(status.iconDataUrl);
   if (!img.isEmpty()) tray.setImage(img);
   tray.setToolTip(status.tooltip.slice(0, 127));
@@ -283,6 +287,19 @@ void app.whenReady().then(() => {
 
   powerMonitor.on('resume', () => setTimeout(() => void service.syncNow('auto'), 5000));
   powerMonitor.on('unlock-screen', () => void service.syncNow('auto'));
+
+  // Smoke test for CI / local checks: render the popup through the real preload bridge, save a PNG, exit.
+  if (process.env.OWA_SMOKE_SHOT) {
+    setTimeout(async () => {
+      showPopup();
+      await new Promise((r) => setTimeout(r, 2500));
+      const img = await popup!.webContents.capturePage();
+      writeFileSync(process.env.OWA_SMOKE_SHOT!, img.toPNG());
+      console.log(`SMOKE ok tray-tooltip="${lastTooltip.replace(/\n/g, " | ")}" events=${service.events.length}`);
+      app.exit(0);
+    }, 1500);
+    return;
+  }
 
   if (!service.settings.account.serverUrl && !DEMO) openSettings();
   else if (!process.argv.includes('--hidden') && !app.isPackaged) showPopup();
