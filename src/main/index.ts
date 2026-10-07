@@ -26,6 +26,7 @@ import { describeError, log, logPath } from './log';
 import { CalendarService } from './calendarService';
 import { ReminderScheduler } from './reminders';
 import { createPopup, createReminder, createSettings, fitReminder, popupSize, positionPopup } from './windows';
+import { isFirstRun } from './store';
 
 // Demo data and the screenshot hook are developer tools: an installed build ignores them.
 const DEMO = !app.isPackaged && (process.env.OWA_DEMO === '1' || process.argv.includes('--demo'));
@@ -314,6 +315,7 @@ void app.whenReady().then(() => {
   log.info(`start: OWA Widget ${app.getVersion()}, electron ${process.versions.electron}, ${process.platform} ${process.arch}, packaged=${app.isPackaged}${DEMO ? ', demo' : ''}`);
   Menu.setApplicationMenu(null); // no default menu: no Reload/DevTools accelerators in any window
   hardenSession();
+  const firstRun = isFirstRun();
   service = new CalendarService(DEMO);
   nativeTheme.themeSource = service.settings.theme;
 
@@ -377,6 +379,7 @@ void app.whenReady().then(() => {
     return;
   }
 
-  if (!service.settings.account.serverUrl && !DEMO) openSettings();
+  // First launch: show the prefilled server address so the person can confirm or change it.
+  if ((firstRun || !service.settings.account.serverUrl) && !DEMO) openSettings();
   else if (!process.argv.includes('--hidden') && !app.isPackaged) showPopup();
 });

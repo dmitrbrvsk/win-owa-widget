@@ -2,7 +2,8 @@
 import type { AppSettings } from '../shared/types';
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  account: { serverUrl: '', useWindowsAuth: true, username: '', hasPassword: false },
+  // Prefilled for the team this build is made for; any other server can be typed over it.
+  account: { serverUrl: 'owa.alfabank.ru', useWindowsAuth: true, username: '', hasPassword: false },
   syncIntervalMinutes: 5,
   reminderMinutes: 1,
   launchAtLogin: true,

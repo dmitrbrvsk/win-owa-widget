@@ -3,7 +3,9 @@ import { app, safeStorage } from 'electron';
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AppSettings, CalendarEvent } from '../shared/types';
+import { checkServerUrl } from '../shared/serverUrl';
 import { readStoredPin, sanitizeSettings } from '../shared/validate';
+import { log } from './log';
 import { DEFAULT_SETTINGS } from './store.defaults';
 
 export { DEFAULT_SETTINGS };
@@ -20,11 +22,22 @@ function writeAtomic(path: string, data: string | Buffer) {
   renameSync(tmp, path);
 }
 
+/** No settings file yet: the very first launch, when the settings window should open to confirm the defaults. */
+export function isFirstRun(): boolean {
+  return !existsSync(join(dir(), 'settings.json'));
+}
+
 export function loadSettings(): AppSettings {
   try {
     const raw = JSON.parse(readFileSync(join(dir(), 'settings.json'), 'utf8')) as unknown;
     // The file is plain JSON that any program of this user can edit: read it through the same filter as the UI input.
     const clean = sanitizeSettings(raw, DEFAULT_SETTINGS);
+    // A stored address that cannot be connected to (an e-mail typed into an older version, say) is
+    // replaced by the default rather than failing every sync until the person finds it.
+    if (clean.account.serverUrl && !checkServerUrl(clean.account.serverUrl).ok) {
+      log.warn(`settings: stored server address is not a server address, using the default instead`);
+      clean.account.serverUrl = DEFAULT_SETTINGS.account.serverUrl;
+    }
     return { ...clean, account: { ...clean.account, ...readStoredPin(raw), hasPassword: !!loadPassword() } };
   } catch {
     return { ...DEFAULT_SETTINGS, account: { ...DEFAULT_SETTINGS.account } };
