@@ -1,0 +1,45 @@
+appId: com.dmitrbrvsk.owawidget
+productName: OWA Widget
+copyright: Copyright © 2026 Dmitry Borovskiy
+directories:
+  output: release
+  buildResources: build
+asar: true
+files:
+  - dist/**/*
+  - package.json
+  - "!**/*.map"
+# Switch off what an attacker could use to turn the app into a general-purpose Node runtime.
+electronFuses:
+  runAsNode: false
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableCookieEncryption: true
+  onlyLoadAppFromAsar: true
+  # The app code is checked against a hash inside the .exe: a changed app.asar does not start.
+  enableEmbeddedAsarIntegrityValidation: true
+  # grantFileProtocolExtraPrivileges stays at its default (on), and not by oversight: measured with it
+  # off, every file:// origin becomes opaque, so Chromium refuses the renderer's own module script and
+  # stylesheet as cross-origin and all four windows come up blank. Turning it off needs the UI served
+  # from a custom protocol first; SECURITY.md records the weaker 'self' until then.
+win:
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+    # A plain zip: unpack once, run from the folder. (The NSIS "portable" target re-extracts the
+    # whole app into %TEMP% on every launch and leaves the folder behind if the app is killed.)
+    - target: zip
+      arch: [x64]
+  artifactName: OWA-Widget-${version}-portable-${arch}.${ext}
+  icon: build/icon.ico
+  # Never ask for administrator rights: the app lives in the user's profile.
+  requestedExecutionLevel: asInvoker
+nsis:
+  artifactName: OWA-Widget-Setup-${version}.${ext}
+  oneClick: true
+  perMachine: false
+  createDesktopShortcut: false
+  createStartMenuShortcut: true
+  shortcutName: OWA Widget
+  # Uninstalling removes the saved settings, the encrypted password and cache, and the log (an update keeps them).
+  deleteAppDataOnUninstall: true
