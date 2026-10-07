@@ -15,7 +15,7 @@ import {
   Tray,
 } from 'electron';
 import { execFile } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { IPC, type ReminderPayload, type SettingsUpdate, type Snapshot, type TrayStatus, type CalendarEvent } from '../shared/types';
 import { joinCandidates, joinUrlForActions, displayTitle } from '../shared/events';
@@ -33,7 +33,43 @@ const DEMO = !app.isPackaged && (process.env.OWA_DEMO === '1' || process.argv.in
 const JOIN_HOTKEY = 'Control+Alt+J';
 
 app.setAppUserModelId('com.dmitrbrvsk.owawidget');
-if (!app.requestSingleInstanceLock()) app.exit(0);
+
+const VERSION = app.getVersion();
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+const instanceFile = () => join(app.getPath('userData'), 'instance.json');
+
+/** The running instance leaves its version here, so a second launch knows whether to wait for a handover. */
+function runningVersion(): string | undefined {
+  try {
+    return (JSON.parse(readFileSync(instanceFile(), 'utf8')) as { version?: string }).version;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * One instance at a time. The same build launched again just brings the running popup forward and
+ * exits. A different build asks the running one to quit and waits for the lock (builds before 0.1.6
+ * do not answer, so the wait ends in a dialog that says where to close them).
+ */
+async function acquireSingleInstance(): Promise<'ok' | 'same' | 'busy'> {
+  const sameBuild = runningVersion() === VERSION;
+  for (let attempt = 0; attempt < 40; attempt++) {
+    if (app.requestSingleInstanceLock({ version: VERSION, attempt })) {
+      try {
+        mkdirSync(app.getPath('userData'), { recursive: true });
+        writeFileSync(instanceFile(), JSON.stringify({ version: VERSION, pid: process.pid }));
+      } catch (e) {
+        log.warn(`instance marker not written: ${describeError(e)}`);
+      }
+      return 'ok';
+    }
+    if (sameBuild) return 'same';
+    await sleep(250);
+  }
+  return 'busy';
+}
 
 process.on('uncaughtException', (e) => log.error(`uncaught: ${describeError(e)}\n${e.stack ?? ''}`));
 process.on('unhandledRejection', (e) => log.error(`unhandled rejection: ${describeError(e)}`));
@@ -303,16 +339,48 @@ function registerIpc() {
 
 // ---------- Lifecycle ----------
 
-app.on('second-instance', () => showPopup());
+app.on('second-instance', (_e, _argv, _cwd, data) => {
+  const other = (data ?? {}) as { version?: string; attempt?: number };
+  if (other.version && other.version !== VERSION) {
+    // A different build wants to take over: let it, instead of making the person hunt for the tray icon.
+    log.info(`another build (${other.version}) is starting; this instance (${VERSION}) quits`);
+    app.quit();
+    return;
+  }
+  if (!other.attempt) showPopup();
+});
 app.on('window-all-closed', () => {
   /* keep running in the tray */
 });
-app.on('will-quit', () => globalShortcut.unregisterAll());
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll();
+  rmSync(instanceFile(), { force: true });
+});
 
 app.on('web-contents-created', (_e, contents) => hardenWebContents(contents));
 
-void app.whenReady().then(() => {
-  log.info(`start: OWA Widget ${app.getVersion()}, electron ${process.versions.electron}, ${process.platform} ${process.arch}, packaged=${app.isPackaged}${DEMO ? ', demo' : ''}`);
+void app.whenReady().then(async () => {
+  const lock = await acquireSingleInstance();
+  if (lock === 'same') {
+    app.exit(0); // the running copy has shown its popup
+    return;
+  }
+  if (lock === 'busy') {
+    dialog.showMessageBoxSync({
+      type: 'info',
+      title: 'OWA Widget',
+      message: 'OWA Widget уже запущен',
+      detail:
+        'Работающая копия не ответила на просьбу завершиться (так бывает с версиями до 0.1.6). ' +
+        'Закройте её: иконка в области уведомлений (возможно, под стрелкой «^») → правая кнопка → «Выход», ' +
+        'или завершите «OWA Widget.exe» в диспетчере задач. Затем запустите приложение снова.',
+      buttons: ['Понятно'],
+      noLink: true,
+    });
+    app.exit(0);
+    return;
+  }
+  log.info(`start: OWA Widget ${VERSION}, electron ${process.versions.electron}, ${process.platform} ${process.arch}, packaged=${app.isPackaged}${DEMO ? ', demo' : ''}`);
   Menu.setApplicationMenu(null); // no default menu: no Reload/DevTools accelerators in any window
   hardenSession();
   const firstRun = isFirstRun();
@@ -379,7 +447,15 @@ void app.whenReady().then(() => {
     return;
   }
 
-  // First launch: show the prefilled server address so the person can confirm or change it.
+  // First launch: show the prefilled server address so the person can confirm or change it, and say
+  // where the app lives, because Windows 11 hides new tray icons behind the "^" overflow button.
   if ((firstRun || !service.settings.account.serverUrl) && !DEMO) openSettings();
+  if (firstRun && process.platform === 'win32') {
+    tray.displayBalloon({
+      iconType: 'info',
+      title: 'OWA Widget работает',
+      content: 'Приложение живёт в области уведомлений (иконка может быть под стрелкой «^»). Закрытие окна его не завершает: «Выход» — в меню иконки или в настройках.',
+    });
+  }
   else if (!process.argv.includes('--hidden') && !app.isPackaged) showPopup();
 });

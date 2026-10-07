@@ -67,12 +67,13 @@ jobs:
       - name: Checksums
         shell: bash
         working-directory: release
-        run: sha256sum *.exe > SHA256SUMS.txt && cat SHA256SUMS.txt
+        run: sha256sum *.exe *.zip > SHA256SUMS.txt && cat SHA256SUMS.txt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: OWA-Widget-windows
           path: |
             release/*.exe
+            release/*.zip
             release/SHA256SUMS.txt
 
   # Publishes a release when master carries a version that has none yet. It builds nothing and
@@ -108,7 +109,9 @@ jobs:
         if: steps.rel.outputs.exists == 'false'
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
         with:
-          subject-path: release/*.exe
+          subject-path: |
+            release/*.exe
+            release/*.zip
       - name: Publish release
         if: steps.rel.outputs.exists == 'false'
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
@@ -120,7 +123,7 @@ jobs:
           body: |
             ## Установка
             - **OWA-Widget-Setup-${{ needs.windows.outputs.version }}.exe** — установщик (Windows 10/11, x64 и ARM64). Ставится для текущего пользователя, права администратора не нужны.
-            - **OWA-Widget-${{ needs.windows.outputs.version }}-portable.exe** — без установки, запускается из любой папки.
+            - **OWA-Widget-${{ needs.windows.outputs.version }}-portable-x64.zip** — без установки: распакуйте в любую папку и запустите `OWA Widget.exe`. Во временные папки ничего не пишется.
 
             ## Как проверить, что файл настоящий
             Установщик пока не подписан сертификатом Windows, поэтому SmartScreen может показать «Windows защитила ваш компьютер». Прежде чем нажимать «Выполнить в любом случае», сверьте файл:
@@ -128,4 +131,5 @@ jobs:
             - **Происхождение сборки.** `gh attestation verify .\OWA-Widget-Setup-${{ needs.windows.outputs.version }}.exe --repo dmitrbrvsk/win-owa-widget` подтверждает, что файл собран из этого репозитория workflow'ом GitHub Actions.
           files: |
             release/*.exe
+            release/*.zip
             release/SHA256SUMS.txt

@@ -278,6 +278,9 @@ export function Settings({ snap }: { snap: Snapshot }) {
         <button className="btn" onClick={() => void api.closeWindow()}>
           {t.close}
         </button>
+        <button className="btn" style={{ marginLeft: 'auto' }} title={t.quitHint} onClick={() => void api.quit()}>
+          {t.quitApp}
+        </button>
         {saved && (
           <span className="msg ok" role="status">
             {t.saved}

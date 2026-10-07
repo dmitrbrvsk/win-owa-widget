@@ -29,7 +29,9 @@
 
 ## Скачать
 
-[**Последний релиз →**](https://github.com/dmitrbrvsk/win-owa-widget/releases/latest): установщик `OWA-Widget-Setup-*.exe` (Windows 10/11, x64 и ARM64) или portable-версия без установки. Установщик пока не подписан, поэтому SmartScreen может предупредить. Сверьте контрольную сумму с `SHA256SUMS.txt` из релиза (как это сделать, см. [SECURITY.md](SECURITY.md)) и только потом нажимайте «Подробнее» → «Выполнить в любом случае».
+[**Последний релиз →**](https://github.com/dmitrbrvsk/win-owa-widget/releases/latest): установщик `OWA-Widget-Setup-*.exe` (Windows 10/11, x64 и ARM64; ставится в профиль пользователя, права администратора не нужны) или `OWA-Widget-*-portable-x64.zip` без установки — распакуйте в любую папку и запустите `OWA Widget.exe`.
+
+Приложение живёт в области уведомлений (на Windows 11 иконка может быть под стрелкой «^»). Закрытие окна его не завершает: «Выход» — в меню иконки или в настройках. Новая версия при запуске сама просит старую завершиться. Установщик пока не подписан, поэтому SmartScreen может предупредить. Сверьте контрольную сумму с `SHA256SUMS.txt` из релиза (как это сделать, см. [SECURITY.md](SECURITY.md)) и только потом нажимайте «Подробнее» → «Выполнить в любом случае».
 
 ## Что уже есть (MVP)
 
@@ -55,7 +57,7 @@ npm install
 npm run dev:demo     # вымышленные встречи, Exchange не нужен
 npm run dev          # с настоящим аккаунтом
 npm test             # тесты разбора OWA, логики встреч и защит
-npm run dist         # установщик и portable .exe в release/ (на Windows)
+npm run dist         # установщик и portable .zip в release/ (на Windows)
 ```
 
 Сборка `.exe` запускается в GitHub Actions на `windows-latest`. Чтобы выпустить релиз, поднимите `version` в `package.json` и запушьте в `master`: релиз `v<версия>` создастся сам.
