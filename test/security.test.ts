@@ -7,6 +7,16 @@ import { redirectRefusal } from '../src/main/owa/redirect';
 
 const FP = 'sha256/' + 'A'.repeat(43) + '=';
 
+/** A data URL that starts like a PNG of the given size (the rest is irrelevant to the header check). */
+function png(w: number, h: number): string {
+  const b = Buffer.alloc(33);
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]).copy(b);
+  b.write('IHDR', 12, 'latin1');
+  b.writeUInt32BE(w, 16);
+  b.writeUInt32BE(h, 20);
+  return 'data:image/png;base64,' + b.toString('base64');
+}
+
 describe('redirects', () => {
   it('allows the same host over https', () => {
     expect(redirectRefusal('https://mail.corp.ru/owa/auth/logon.aspx', 'mail.corp.ru')).toBeNull();
@@ -56,7 +66,9 @@ describe('IPC arguments', () => {
     expect(() => parseRsvpAction('delete')).toThrow();
   });
   it('accepts only PNG data URLs for the tray icon', () => {
-    expect(parseTrayStatus({ iconDataUrl: 'data:image/png;base64,AAAA', tooltip: 'x' })).not.toBeNull();
+    expect(parseTrayStatus({ iconDataUrl: png(32, 32), tooltip: 'x' })).not.toBeNull();
+    expect(parseTrayStatus({ iconDataUrl: png(4000, 4000), tooltip: 'x' })).toBeNull(); // a huge picture is not decoded
+    expect(parseTrayStatus({ iconDataUrl: 'data:image/png;base64,AAAA', tooltip: 'x' })).toBeNull(); // not a PNG header
     expect(parseTrayStatus({ iconDataUrl: 'file:///etc/passwd', tooltip: 'x' })).toBeNull();
     expect(parseTrayStatus({ iconDataUrl: 'data:text/html;base64,AAAA', tooltip: 'x' })).toBeNull();
   });
@@ -180,5 +192,204 @@ describe('working hours setting', () => {
     const bad = sanitizeSettings({ workdayStartHour: 20, workdayEndHour: 8 }, DEFAULT_SETTINGS);
     expect([bad.workdayStartHour, bad.workdayEndHour]).toEqual([DEFAULT_SETTINGS.workdayStartHour, DEFAULT_SETTINGS.workdayEndHour]);
     expect(sanitizeSettings({ workdayStartHour: -3, workdayEndHour: 99 }, DEFAULT_SETTINGS).workdayEndHour).toBe(24);
+  });
+});
+
+// ---------- Review round 2: what a hostile invitation, page or settings file may do ----------
+
+describe('a hostile invitation cannot stall the app', () => {
+  const time = (fn: () => unknown) => {
+    const t = performance.now();
+    fn();
+    return performance.now() - t;
+  };
+  const big = 'a'.repeat(20_000);
+
+  it('link detection is linear on long runs of name characters (was 300 ms per 20 KB, per field, per meeting)', () => {
+    expect(time(() => detectMeetingUrl(big))).toBeLessThan(60);
+    expect(time(() => detectMeetingUrl('a-'.repeat(10_000)))).toBeLessThan(60);
+    expect(time(() => detectMeetingUrl('a.'.repeat(10_000)))).toBeLessThan(60);
+    expect(time(() => detectMeetingUrl('.ktalk.ru'.repeat(2_000)))).toBeLessThan(60);
+  });
+
+  it('a meeting with a hostile location and five hostile bodies maps in a few ms (was 2 s)', async () => {
+    const { mapCalendarItem } = await import('../src/main/owa/parse');
+    const body = { Value: big };
+    const ms = time(() =>
+      mapCalendarItem({ Subject: 's', Start: '2026-10-08T10:00:00', End: '2026-10-08T11:00:00', Location: { DisplayName: big }, TextBody: body, UniqueBody: body, Body: body, NormalizedBody: body, Preview: big }),
+    );
+    expect(ms).toBeLessThan(150);
+  });
+
+  it('htmlToText: unclosed links, long runs of spaces and tabs (was 8 s for 400 KB of anchors)', () => {
+    expect(time(() => htmlToText('<a href="https://x.y">'.repeat(18_000)))).toBeLessThan(300);
+    expect(time(() => htmlToText('<a href="https://x.y">t'.repeat(17_000)))).toBeLessThan(300);
+    expect(time(() => htmlToText(' '.repeat(400_000) + 'x'))).toBeLessThan(300);
+    expect(time(() => htmlToText('\t '.repeat(200_000)))).toBeLessThan(300);
+    expect(time(() => htmlToText('&a'.repeat(200_000)))).toBeLessThan(300);
+  });
+
+  it('htmlToText keeps reading real links', () => {
+    expect(htmlToText('<p>See <a href="https://a.b/c">the plan</a> and <A HREF="https://d.e">https://d.e</A>.</p>')).toBe('See the plan (https://a.b/c) and https://d.e.');
+    expect(htmlToText('<a name="x">anchor</a> <a href="https://a.b/">ok</a>')).toBe('anchor ok (https://a.b/)');
+  });
+
+  it('the server page parsers are linear too (the login form pattern took over 20 s)', async () => {
+    const { parseLoginForm, owaLoginForm, extractCanaryFromHtml } = await import('../src/main/owa/parse');
+    const page = 'https://o.x.ru/owa/auth/logon.aspx';
+    expect(time(() => parseLoginForm('<form action="/owa/auth.owa">' + '<input type="hidden" '.repeat(20_000), page, 'https://o.x.ru'))).toBeLessThan(300);
+    expect(time(() => parseLoginForm('<form '.repeat(40_000), page, 'https://o.x.ru'))).toBeLessThan(300);
+    expect(time(() => owaLoginForm('<input type="password"><form action="/owa/auth.owa">' + '<input '.repeat(400_000), page, 'https://o.x.ru'))).toBeLessThan(300);
+    expect(time(() => extractCanaryFromHtml('X-OWA-CANARY'.repeat(1_000_000)))).toBeLessThan(500); // never finished in 60 s before
+  });
+
+  it('a flood of hidden fields is capped', async () => {
+    const { parseLoginForm } = await import('../src/main/owa/parse');
+    const html = '<form action="/owa/auth.owa">' + '<input type="hidden" name="a" value="b">'.repeat(5_000);
+    expect(parseLoginForm(html, 'https://o.x.ru/owa/', 'https://o.x.ru').hiddenFields.length).toBeLessThanOrEqual(64);
+  });
+});
+
+describe('link detection edge cases', () => {
+  it('KTalk: the host must really be ktalk.ru', () => {
+    expect(detectMeetingUrl('https://a.ktalk.ru.evil.example/x')).toBeNull();
+    expect(detectMeetingUrl('team.ktalk.rus/x')).toBeNull();
+    expect(detectMeetingUrl('x.ktalk.ru.')?.url).toBe('https://x.ktalk.ru/');
+    expect(detectMeetingUrl('join: https://a.b.ktalk.ru/room/1, please')?.url).toBe('https://a.b.ktalk.ru/room/1');
+    expect(detectMeetingUrl('Подключайтесь: team.ktalk.ru/xyz.')?.url).toBe('https://team.ktalk.ru/xyz');
+  });
+  it('the returned link is the normalized one and never carries hidden characters', () => {
+    expect(safeUrl('https://a.zoom.us/j/1‮cod.exe')).toBeNull();
+    expect(safeUrl('https://a.zoom.us/j/1\u0007')).toBeNull();
+    expect(detectMeetingUrl('https://a.zoom.us/j/1‮txt')).toBeNull();
+    expect(detectMeetingUrl('https://a.zoom.us/j/1')?.url).toBe('https://a.zoom.us/j/1');
+  });
+});
+
+describe('server-supplied fields are clipped and cleaned', () => {
+  const base = { ItemId: { Id: 'AAMk1', ChangeKey: 'DwAA' }, Start: '2026-10-07T10:00:00+03:00', End: '2026-10-07T10:30:00+03:00' };
+  it('cuts long text and drops bidi overrides and control characters', async () => {
+    const { mapCalendarItem } = await import('../src/main/owa/parse');
+    const e = mapCalendarItem({ ...base, Subject: 'Отчёт ‮gpj.exe\u0007' + 'я'.repeat(5_000), Location: { DisplayName: 'x'.repeat(5_000) }, Organizer: { Mailbox: { Name: 'n'.repeat(5_000) } }, Preview: 'p'.repeat(50_000) })!;
+    expect(e.title.length).toBeLessThanOrEqual(500);
+    expect(e.title).not.toMatch(/[‮\u0007]/);
+    expect(e.location!.length).toBeLessThanOrEqual(500);
+    expect(e.organizer!.length).toBeLessThanOrEqual(200);
+    expect(e.bodyPreview!.length).toBeLessThanOrEqual(600);
+  });
+  it('caps the number of meetings and attendees', async () => {
+    const { parseCalendarView, parseEventDetails } = await import('../src/main/owa/parse');
+    const items = Array.from({ length: 5_000 }, (_, i) => ({ ...base, Subject: `m${i}`, ItemId: { Id: `id${i}` } }));
+    expect(parseCalendarView({ Body: { Items: items } }).length).toBe(3000);
+    const many = Array.from({ length: 5_000 }, (_, i) => ({ Mailbox: { Name: `p${i}` } }));
+    const d = parseEventDetails({ Body: { RequiredAttendees: many, OptionalAttendees: many } });
+    expect(d.attendees.length).toBeLessThanOrEqual(1000);
+  });
+  it('survives absurd nesting', async () => {
+    const { parseEventDetails, defaultCalendarFolder } = await import('../src/main/owa/parse');
+    let deep: unknown = { RequiredAttendees: [{ Mailbox: { Name: 'x' } }] };
+    for (let i = 0; i < 20_000; i++) deep = { n: deep };
+    expect(() => parseEventDetails(deep)).not.toThrow();
+    expect(() => defaultCalendarFolder(deep)).not.toThrow();
+  });
+  it('never sends markup from an invitation to the window', async () => {
+    const { parseEventDetails } = await import('../src/main/owa/parse');
+    const d = parseEventDetails({ Body: { Body: { Value: '<p onclick="x()">Hi</p><script>alert(1)</script>', BodyType: 'HTML' } } });
+    expect(d.bodyText).toBe('Hi');
+    expect(JSON.stringify(d)).not.toContain('script');
+  });
+});
+
+describe('the password goes only where it was meant to', () => {
+  it('a login form must be https, on this host and port, and post to auth.owa', async () => {
+    const { owaLoginForm } = await import('../src/main/owa/parse');
+    const base = 'https://owa.bank.ru';
+    const page = `${base}/owa/auth/logon.aspx`;
+    const form = (action: string) => `<form action="${action}"><input type="password" name="password"></form>`;
+    expect(owaLoginForm(form('/owa/auth.owa'), page, base)?.action).toBe(`${base}/owa/auth.owa`);
+    expect(owaLoginForm(form('http://owa.bank.ru/owa/auth.owa'), page, base)).toBeNull(); // cleartext on the same host
+    expect(owaLoginForm(form('https://owa.bank.ru:8443/owa/auth.owa'), page, base)).toBeNull(); // another port
+    expect(owaLoginForm(form('https://evil.example/owa/auth.owa'), page, base)).toBeNull();
+    expect(owaLoginForm(form('/login'), page, base)).toBeNull();
+    expect(owaLoginForm(form('//evil.example/owa/auth.owa'), page, base)).toBeNull();
+  });
+
+  it('the first request and every redirect stay on the configured https origin', async () => {
+    const { requestRefusal, redirectRefusal } = await import('../src/main/owa/redirect');
+    expect(requestRefusal('https://owa.bank.ru/owa/', 'owa.bank.ru')).toBeNull();
+    expect(requestRefusal('http://owa.bank.ru/owa/auth.owa', 'owa.bank.ru')).not.toBeNull();
+    expect(requestRefusal('https://owa.bank.ru:8443/x', 'owa.bank.ru')).not.toBeNull();
+    expect(requestRefusal('https://owa.bank.ru:8443/x', 'owa.bank.ru:8443')).toBeNull();
+    expect(redirectRefusal('https://owa.bank.ru:8443/x', 'owa.bank.ru')).not.toBeNull(); // another port is another service
+    expect(redirectRefusal('https://owa.bank.ru/x', 'owa.bank.ru:8443')).not.toBeNull();
+  });
+
+  it('the saved password is released only for the server it was typed for', async () => {
+    const { openSecret, sealSecret } = await import('../src/shared/secret');
+    const sealed = sealSecret('s3cret', 'OWA.bank.ru');
+    expect(openSecret(sealed, 'owa.bank.ru')).toEqual({ kind: 'ok', password: 's3cret' });
+    expect(openSecret(sealed, 'evil.example')).toEqual({ kind: 'other-server' });
+    expect(openSecret(sealed, '')).toEqual({ kind: 'other-server' });
+    expect(openSecret(sealed, 'owa.bank.ru:8443')).toEqual({ kind: 'other-server' });
+  });
+  it('a password saved by an older version is recognized so it can be bound once', async () => {
+    const { openSecret } = await import('../src/shared/secret');
+    expect(openSecret('hunter2', 'owa.bank.ru')).toEqual({ kind: 'legacy', password: 'hunter2' });
+    expect(openSecret('{"a":1}', 'owa.bank.ru')).toEqual({ kind: 'legacy', password: '{"a":1}' });
+  });
+  it('server identity is host plus port, lower case', async () => {
+    const { serverKey } = await import('../src/shared/serverUrl');
+    expect(serverKey('OWA.Bank.ru')).toBe('owa.bank.ru');
+    expect(serverKey('https://owa.bank.ru:8443/owa')).toBe('owa.bank.ru:8443');
+    expect(serverKey('https://owa.bank.ru:443/owa')).toBe('owa.bank.ru');
+    expect(serverKey('user@bank.ru')).toBe('');
+    expect(serverKey('')).toBe('');
+  });
+});
+
+describe('what a hotkey may open', () => {
+  it('only meetings the person answered yes to or runs', async () => {
+    const { isEngaged } = await import('../src/shared/events');
+    const e = (responseType: string) => ({ responseType }) as never;
+    expect(isEngaged(e('accepted'))).toBe(true);
+    expect(isEngaged(e('tentative'))).toBe(true);
+    expect(isEngaged(e('organizer'))).toBe(true);
+    expect(isEngaged(e('notResponded'))).toBe(false);
+    expect(isEngaged(e('declined'))).toBe(false);
+  });
+});
+
+describe('the event cache file', () => {
+  it('is rebuilt field by field; junk gives an empty list', async () => {
+    const { sanitizeEvents } = await import('../src/shared/validate');
+    expect(sanitizeEvents(null)).toEqual([]);
+    expect(sanitizeEvents({ events: [] })).toEqual([]);
+    expect(sanitizeEvents([1, 'x', null, { id: 5 }])).toEqual([]);
+    const ok = {
+      id: 'a',
+      title: 'T‮',
+      start: '2026-10-07T07:00:00.000Z',
+      end: '2026-10-07T08:00:00.000Z',
+      joinUrl: 'javascript:alert(1)',
+      platform: 'zoom',
+      responseType: 'owner',
+      evil: 1,
+    };
+    const [e] = sanitizeEvents([ok]);
+    expect(e.title).toBe('T');
+    expect(e.joinUrl).toBeUndefined();
+    expect(e.platform).toBe('generic');
+    expect(e.responseType).toBe('notResponded');
+    expect('evil' in e).toBe(false);
+    expect(sanitizeEvents([{ ...ok, start: 'soon' }])).toEqual([]);
+  });
+});
+
+describe('the log and dialogs cannot be forged by foreign text', () => {
+  it('keeps one entry on one line', async () => {
+    const { logLine, oneLine } = await import('../src/shared/text');
+    expect(logLine('a\nINFO fake entry\r\nb')).not.toMatch(/[\r\n]/);
+    expect(oneLine('CN=Evil\n\nОтпечаток: sha256/forged‮', 200)).toBe('CN=Evil Отпечаток: sha256/forged');
+    expect(oneLine('x'.repeat(1000), 50)).toHaveLength(50);
   });
 });

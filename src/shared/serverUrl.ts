@@ -23,6 +23,12 @@ export function checkServerUrl(input: string): ServerUrlCheck {
   return { ok: true, url: `https://${u.host}`, host: u.hostname };
 }
 
+/** `host[:port]` in lower case for a usable server address, '' otherwise: the identity a stored password and every request are bound to. */
+export function serverKey(input: string): string {
+  const check = checkServerUrl(input);
+  return check.ok ? new URL(check.url).host.toLowerCase() : '';
+}
+
 /** Wording for the main process, which speaks Russian in its errors. */
 export const SERVER_URL_MESSAGES_RU: Record<ServerUrlProblem, (detail?: string) => string> = {
   empty: () => 'Укажите адрес сервера OWA',

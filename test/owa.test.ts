@@ -143,7 +143,7 @@ describe('GetCalendarEvent', () => {
       { name: 'b@x', email: 'b@x', kind: 'optional', response: 'notResponded' },
     ]);
     expect(d.bodyText).toBe('Повестка\n• Один\n• Два\nтут (https://ex.com)');
-    expect(d.bodyHtml).toContain('<ul>');
+    expect('bodyHtml' in d).toBe(false); // markup from a stranger's invite stays in the main process
   });
 
   it('decodes entities', () => {

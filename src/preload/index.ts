@@ -21,6 +21,7 @@ const api: OwaApi = {
   testConnection: (u) => ipcRenderer.invoke(IPC.testConnection, u),
   trustCertificate: (fp) => ipcRenderer.invoke(IPC.trustCertificate, fp),
   forgetCertificate: () => ipcRenderer.invoke(IPC.forgetCertificate),
+  clearCache: () => ipcRenderer.invoke(IPC.clearCache),
   openLog: () => ipcRenderer.invoke(IPC.openLog),
   openSettings: () => ipcRenderer.invoke(IPC.openSettings),
   closeWindow: () => ipcRenderer.invoke(IPC.closeWindow),
@@ -30,6 +31,7 @@ const api: OwaApi = {
   getReminder: () => ipcRenderer.invoke(IPC.getReminder),
   snoozeReminder: (m) => ipcRenderer.invoke(IPC.snoozeReminder, m),
   onPopupShown: (cb) => subscribe(IPC.popupShown, () => cb()),
+  onOpenEvent: (cb) => subscribe<string>(IPC.openEvent, (id) => cb(id)),
   resizePopup: (h) => ipcRenderer.send(IPC.resizePopup, h),
 };
 

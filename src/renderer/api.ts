@@ -17,6 +17,8 @@ function mockApi(): OwaApi {
     reminderMinutes: 1,
     workdayStartHour: 8,
     workdayEndHour: 20,
+    notifyChanges: true,
+    reminderStyle: 'auto',
     launchAtLogin: true,
     theme: (params.get('theme') as AppSettings['theme']) ?? 'system',
     language: (params.get('lang') as AppSettings['language']) ?? 'ru',
@@ -28,7 +30,7 @@ function mockApi(): OwaApi {
     sync: { phase: 'ok', lastSuccess: new Date().toISOString() },
     settings,
     demo: true,
-    version: '0.1.8',
+    version: '0.2.0',
     taskbarLight: false,
     logPath: 'C:\\Users\\you\\AppData\\Roaming\\OWA Widget\\logs\\owa-widget.log',
   };
@@ -55,10 +57,12 @@ function mockApi(): OwaApi {
     saveSettings: async (u) => {
       snap = { ...snap, settings: u.settings };
       emit();
+      return { passwordRemoved: false };
     },
     testConnection: async () => ({ ok: true, message: 'Подключено. Встреч на неделю: 12', eventCount: 12 }),
     trustCertificate: async () => {},
     forgetCertificate: async () => {},
+    clearCache: async () => {},
     openLog: async () => {},
     openSettings: async () => void (location.hash = '#/settings'),
     closeWindow: async () => {},
@@ -70,6 +74,7 @@ function mockApi(): OwaApi {
     getReminder: async () => ({ events: snap.events.filter((e) => e.title.startsWith('Дизайн') || e.title.startsWith('Синк')).slice(0, params.get('many') ? 2 : 1) }),
     snoozeReminder: async () => {},
     onPopupShown: () => () => {},
+    onOpenEvent: () => () => {},
     resizePopup: () => {},
   };
 }

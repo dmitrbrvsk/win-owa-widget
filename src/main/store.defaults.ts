@@ -8,6 +8,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   reminderMinutes: 1,
   workdayStartHour: 8,
   workdayEndHour: 20,
+  notifyChanges: true,
+  reminderStyle: 'auto',
   launchAtLogin: true,
   theme: 'system',
   language: 'system',

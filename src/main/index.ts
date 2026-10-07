@@ -9,17 +9,19 @@ import {
   Menu,
   nativeImage,
   nativeTheme,
-  Notification,
   powerMonitor,
   shell,
   Tray,
 } from 'electron';
 import { execFile } from 'node:child_process';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { IPC, type ReminderPayload, type SettingsUpdate, type Snapshot, type TrayStatus, type CalendarEvent } from '../shared/types';
-import { joinCandidates, joinUrlForActions, displayTitle } from '../shared/events';
-import { safeUrl } from '../shared/meetingUrl';
+import { joinCandidates, joinUrlForActions, displayTitle, isEngaged } from '../shared/events';
+import { safeUrl, urlHost } from '../shared/meetingUrl';
+import { describeChanges, type EventChange } from '../shared/changes';
+import { doneText, noteToast, reminderToast } from '../shared/toasts';
+import { oneLine } from '../shared/text';
 import { parseClipboardText, parseHeight, parseId, parseMinutes, parseRsvpAction, parseTrayStatus, parseUrlArg, isFingerprint } from '../shared/validate';
 import { hardenSession, hardenWebContents, isTrustedSender } from './security';
 import { describeError, log, logPath } from './log';
@@ -27,6 +29,7 @@ import { CalendarService } from './calendarService';
 import { ReminderScheduler } from './reminders';
 import { createPopup, createReminder, createSettings, fitReminder, popupSize, positionPopup } from './windows';
 import { isFirstRun } from './store';
+import { showToast, toastsSupported } from './toasts';
 
 // Demo data and the screenshot hook are developer tools: an installed build ignores them.
 const DEMO = !app.isPackaged && (process.env.OWA_DEMO === '1' || process.argv.includes('--demo'));
@@ -184,7 +187,19 @@ function openSettings() {
 
 // ---------- Reminder ----------
 
-function showReminder(events: CalendarEvent[]) {
+/**
+ * Whether the reminder is a Windows notification with buttons. "Automatic" uses it only for an
+ * installed copy: that one has a Start-menu shortcut, which Windows needs to deliver notifications
+ * of this app. The portable zip has none, so it keeps the widget's own window, which always shows.
+ */
+function reminderAsToast(): boolean {
+  const style = service.settings.reminderStyle;
+  if (style === 'window' || !toastsSupported()) return false;
+  if (style === 'system') return true;
+  return process.platform === 'win32' && existsSync(join(dirname(process.execPath), 'Uninstall OWA Widget.exe'));
+}
+
+function showReminderWindow(events: CalendarEvent[]) {
   pendingReminder = { events };
   if (!reminderWin || reminderWin.isDestroyed()) {
     reminderWin = createReminder(service.settings.theme);
@@ -199,6 +214,37 @@ function showReminder(events: CalendarEvent[]) {
   }
 }
 
+function showReminder(events: CalendarEvent[]) {
+  if (reminderAsToast()) {
+    const shown = showToast(
+      reminderToast(events, new Date(), uiLang()),
+      {
+        onAction: (id, minutes) => {
+          if (id === 'join') {
+            // The link as the meeting has it now; the one from when the toast appeared if it is gone.
+            const current = service.events.find((e) => e.id === events[0].id) ?? events[0];
+            const url = joinUrlForActions(current);
+            if (url) void openExternal(url);
+          } else if (id === 'snooze') reminders.snooze(events, minutes);
+          else if (id === 'open') showPopup();
+        },
+        onClick: () => openMeeting(events.length === 1 ? events[0].id : undefined),
+        // Windows refused the notification: the person must not miss the meeting because of it.
+        onFailed: () => showReminderWindow(events),
+      },
+      { sticky: true, group: 'reminder' },
+    );
+    if (shown) return;
+  }
+  showReminderWindow(events);
+}
+
+/** Brings the widget forward, on one meeting when it is known. */
+function openMeeting(eventId?: string) {
+  showPopup();
+  if (eventId) popup?.webContents.send(IPC.openEvent, eventId);
+}
+
 // ---------- Join ----------
 
 async function openExternal(url: string) {
@@ -209,8 +255,9 @@ async function openExternal(url: string) {
 function joinFromHotkey() {
   const candidates = joinCandidates(service.events, new Date());
   const only = candidates.length === 1 ? candidates[0] : undefined;
-  // A link to an unknown host is never opened blindly from a hotkey: the popup shows it first.
-  if (only && only.platform !== 'generic' && joinUrlForActions(only)?.startsWith('https://')) {
+  // A link to an unknown host, or from an invitation nobody answered, is never opened blindly from a
+  // hotkey: the popup shows it first.
+  if (only && only.platform !== 'generic' && isEngaged(only) && joinUrlForActions(only)?.startsWith('https://')) {
     void openExternal(joinUrlForActions(only)!);
     return;
   }
@@ -218,9 +265,7 @@ function joinFromHotkey() {
     showPopup(); // several at once, or an unfamiliar link: the popup lets the user look and pick
     return;
   }
-  if (Notification.isSupported()) {
-    new Notification({ title: 'OWA Widget', body: 'Сейчас нет встречи со ссылкой для подключения', silent: true }).show();
-  }
+  showToast({ title: 'OWA Widget', body: uiLang() === 'en' ? 'No meeting with a join link right now' : 'Сейчас нет встречи со ссылкой для подключения', buttons: [] }, {}, { silent: true });
 }
 
 function applyHotkey() {
@@ -233,6 +278,62 @@ function applyLoginItem() {
   app.setLoginItemSettings({ openAtLogin: service.settings.launchAtLogin, args: ['--hidden'] });
 }
 
+// ---------- Change notifications ----------
+
+const toldChanges = new Set<string>();
+let noteTimes: number[] = [];
+/** Whatever a server sends, the person gets at most this many notifications an hour. */
+const NOTES_PER_HOUR = 6;
+
+function uiLang(): 'ru' | 'en' {
+  const pref = service.settings.language;
+  if (pref === 'ru' || pref === 'en') return pref;
+  return app.getLocale().toLowerCase().startsWith('ru') ? 'ru' : 'en';
+}
+
+/** Accept pressed on an invitation's notification: answers the server, then says how it went. */
+async function acceptFromToast(eventId: string) {
+  const text = doneText(uiLang());
+  try {
+    await service.respond(eventId, 'accept');
+    showToast({ title: text.accepted, body: '', buttons: [] }, {}, { silent: true });
+  } catch (e) {
+    log.warn(`accept from notification failed: ${describeError(e)}`);
+    showToast({ title: text.failed, body: oneLine(describeError(e), 160), buttons: [] }, { onClick: () => openMeeting(eventId) });
+  }
+}
+
+function notifyChanges(changes: EventChange[]) {
+  if (!service.settings.notifyChanges || !toastsSupported()) return;
+  if (toldChanges.size > 1000) toldChanges.clear();
+  // A change is told once per run, even if the server flips a meeting back and forth.
+  const fresh = changes.filter((c) => {
+    const key = `${c.kind}|${c.event.id}|${c.event.start}|${c.event.end}`;
+    if (toldChanges.has(key)) return false;
+    toldChanges.add(key);
+    return true;
+  });
+  if (fresh.length) log.info(`changes: ${fresh.length} new (${fresh.filter((c) => c.kind === 'moved').length} moved, ${fresh.filter((c) => c.kind === 'cancelled').length} cancelled, ${fresh.filter((c) => c.kind === 'invited').length} invited)`);
+  const now = Date.now();
+  noteTimes = noteTimes.filter((t) => now - t < 3_600_000);
+  for (const note of describeChanges(fresh, new Date(), uiLang())) {
+    if (noteTimes.length >= NOTES_PER_HOUR) break;
+    noteTimes.push(now);
+    const eventId = note.eventId;
+    showToast(
+      noteToast(note, uiLang()),
+      {
+        onClick: () => openMeeting(eventId),
+        onAction: (id) => {
+          if (id === 'accept' && eventId) void acceptFromToast(eventId);
+        },
+      },
+      // A change is news, not an alarm: it can go quietly to the notification centre after a while.
+      {},
+    );
+  }
+}
+
 // ---------- Tray ----------
 
 function updateTrayMenu() {
@@ -241,7 +342,8 @@ function updateTrayMenu() {
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: 'Открыть', click: showPopup },
-      ...join.map((e) => ({ label: `Подключиться: ${displayTitle(e).slice(0, 40)}`, click: () => void openExternal(joinUrlForActions(e)!) })),
+      // A link to an unfamiliar site shows where it goes, as the buttons in the windows do.
+      ...join.map((e) => ({ label: `Подключиться${e.platform === 'generic' ? ` (${urlHost(joinUrlForActions(e)) ?? '?'})` : ''}: ${displayTitle(e).slice(0, 40)}`, click: () => void openExternal(joinUrlForActions(e)!) })),
       { label: 'Обновить', click: () => void service.syncNow('manual') },
       { type: 'separator' as const },
       { label: 'Настройки…', click: openSettings },
@@ -276,12 +378,50 @@ function listen(channel: string, fn: (e: Electron.IpcMainEvent, ...args: unknown
   });
 }
 
+/** One native confirmation at a time: a page that keeps asking cannot stack dialogs on the person. */
+let modalOpen = false;
+
+async function askNative(options: Electron.MessageBoxOptions, parent?: BrowserWindow): Promise<number> {
+  if (modalOpen) throw new Error('Уже открыто окно подтверждения — ответьте на него');
+  modalOpen = true;
+  try {
+    const { response } = parent && !parent.isDestroyed() ? await dialog.showMessageBox(parent, options) : await dialog.showMessageBox(options);
+    return response;
+  } finally {
+    modalOpen = false;
+  }
+}
+
+/**
+ * Pointing the app at another server sends it the password and the Windows identity, so a change of
+ * server is confirmed in a native dialog the page cannot click. Returns false when the person declines.
+ */
+async function confirmServerChange(host: string, parent?: BrowserWindow): Promise<boolean> {
+  const answer = await askNative(
+    {
+      type: 'warning',
+      title: 'OWA Widget',
+      message: `Подключиться к серверу ${host}?`,
+      detail:
+        'Приложение будет отправлять на этот сервер ваш логин и пароль (а если логин не указан — данные вашей учётной записи Windows) и читать с него календарь.\n\n' +
+        'Пароль, сохранённый для прежнего сервера, на новый не передаётся: его придётся ввести заново.\n\n' +
+        'Если вы не меняли адрес сервера сами, нажмите «Отмена».',
+      buttons: ['Отмена', 'Подключиться'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    },
+    parent,
+  );
+  return answer === 1;
+}
+
 /** Trusting a certificate is a decision for the person, so it is asked in a native dialog the page cannot fake or click. */
-async function confirmTrustCertificate(): Promise<boolean> {
+async function confirmTrustCertificate(parent?: BrowserWindow): Promise<boolean> {
   const pending = service.pendingCertificate();
   if (!pending) return false;
   const until = new Date(pending.validTo).toLocaleDateString('ru-RU');
-  const { response } = await dialog.showMessageBox({
+  const response = await askNative({
     type: 'warning',
     title: 'OWA Widget',
     message: `Сертификат сервера ${pending.host} не прошёл проверку Windows`,
@@ -295,7 +435,7 @@ async function confirmTrustCertificate(): Promise<boolean> {
     defaultId: 0,
     cancelId: 0,
     noLink: true,
-  });
+  }, parent);
   return response === 1;
 }
 
@@ -310,14 +450,27 @@ function registerIpc() {
     hidePopup();
   });
   handle(IPC.copyText, (_e, text) => clipboard.writeText(parseClipboardText(text)));
-  handle(IPC.saveSettings, (_e, update) => service.applySettings(update as SettingsUpdate));
-  handle(IPC.testConnection, (_e, update) => service.testConnection(update as SettingsUpdate));
-  handle(IPC.trustCertificate, async (_e, fp) => {
+  handle(IPC.saveSettings, async (e, update) => {
+    const next = service.serverChangeOf(update);
+    if (next && !(await confirmServerChange(next, BrowserWindow.fromWebContents(e.sender) ?? undefined))) {
+      throw new Error('Смена сервера отменена: адрес не изменён');
+    }
+    return service.applySettings(update as SettingsUpdate);
+  });
+  handle(IPC.testConnection, async (e, update) => {
+    const next = service.serverChangeOf(update);
+    if (next && !(await confirmServerChange(next, BrowserWindow.fromWebContents(e.sender) ?? undefined))) {
+      return { ok: false, message: 'Проверка отменена: подключение к новому серверу не подтверждено' };
+    }
+    return service.testConnection(update as SettingsUpdate);
+  });
+  handle(IPC.trustCertificate, async (e, fp) => {
     if (!isFingerprint(fp)) throw new Error('Недопустимый отпечаток');
-    if (!(await confirmTrustCertificate())) return;
+    if (!(await confirmTrustCertificate(BrowserWindow.fromWebContents(e.sender) ?? undefined))) return;
     await service.trustCertificate(fp);
   });
   handle(IPC.forgetCertificate, () => service.forgetCertificate());
+  handle(IPC.clearCache, () => service.clearCache());
   handle(IPC.openLog, () => shell.showItemInFolder(logPath()));
   handle(IPC.openSettings, () => openSettings());
   handle(IPC.closeWindow, (e) => {
@@ -345,7 +498,9 @@ function registerIpc() {
 // ---------- Lifecycle ----------
 
 app.on('second-instance', (_e, _argv, _cwd, data) => {
-  const other = (data ?? {}) as { version?: string; attempt?: number };
+  // Whatever a second launch sends is only a hint: read as plain values, never trusted for more.
+  const d = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
+  const other = { version: typeof d.version === 'string' ? d.version.slice(0, 32) : undefined, attempt: typeof d.attempt === 'number' ? d.attempt : 0 };
   if (other.version && other.version !== VERSION) {
     // A different build wants to take over: let it, instead of making the person hunt for the tray icon.
     log.info(`another build (${other.version}) is starting; this instance (${VERSION}) quits`);
@@ -403,6 +558,8 @@ void app.whenReady().then(async () => {
   ensurePopup();
 
   service.on('changed', broadcast);
+  service.on('changes', notifyChanges);
+  service.on('cacheCleared', () => toldChanges.clear());
   readTaskbarTheme();
   nativeTheme.on('updated', readTaskbarTheme);
   service.on('settings', (prev, next) => {

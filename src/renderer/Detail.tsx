@@ -5,7 +5,7 @@ import { urlHost } from '../shared/meetingUrl';
 import { api } from './api';
 import { Icon } from './icons';
 import { duration, range, shortDay } from './format';
-import { eventColor, PLATFORM_NAME } from './hooks';
+import { eventColor, ipcMessage, PLATFORM_NAME } from './hooks';
 import type { Dict, Lang } from './i18n';
 
 const RESP_COLOR: Record<ResponseType, string> = {
@@ -95,7 +95,7 @@ export function Detail({ event, t, lang, onClose, onJoin, toast }: Props) {
       await api.respond(event.id, action);
       toast(t.answered);
     } catch (e) {
-      toast(e instanceof Error ? e.message : String(e));
+      toast(ipcMessage(e));
     } finally {
       setBusy(false);
     }

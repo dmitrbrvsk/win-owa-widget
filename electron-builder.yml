@@ -16,6 +16,8 @@ electronFuses:
   enableNodeCliInspectArguments: false
   enableCookieEncryption: true
   onlyLoadAppFromAsar: true
+  # The app code is checked against a hash inside the .exe: a changed app.asar does not start.
+  enableEmbeddedAsarIntegrityValidation: true
 win:
   target:
     - target: nsis
@@ -35,3 +37,5 @@ nsis:
   createDesktopShortcut: false
   createStartMenuShortcut: true
   shortcutName: OWA Widget
+  # Uninstalling removes the saved settings, the encrypted password and cache, and the log (an update keeps them).
+  deleteAppDataOnUninstall: true

@@ -1,23 +1,30 @@
 // Parsing of OWA HTML pages and JSON responses. Pure functions, unit-tested.
 import type { CalendarEvent, EventAttendee, EventDetails, ResponseType } from '../../shared/types';
 import { detectMeetingUrl, detectPlatform, safeUrl, stripHtml } from '../../shared/meetingUrl';
+import { clean, clip, oneLine } from '../../shared/text';
 import type { FolderIdentifier } from './payloads';
 
 // ---------- CANARY ----------
 
+// Every quantifier is bounded: a page is the server's to write, and an unbounded `[^"]*` after a
+// phrase that repeats a million times makes the scan quadratic.
 const CANARY_PATTERNS = [
-  /"canary"\s*:\s*"([^"]+)"/i,
-  /name="canary"\s+value="([^"]+)"/i,
-  /name="canary" content="([^"]+)"/i,
-  /var\s+g_canary\s*=\s*"([^"]+)"/i,
-  /X-OWA-CANARY[^"]*"\s*,\s*"([^"]+)"/i,
-  /data-canary="([^"]+)"/i,
-  /canary:\s*'([^']+)'/i,
+  /"canary"\s{0,32}:\s{0,32}"([^"]{1,512})"/i,
+  /name="canary"\s{1,32}value="([^"]{1,512})"/i,
+  /name="canary" content="([^"]{1,512})"/i,
+  /var\s{1,32}g_canary\s{0,32}=\s{0,32}"([^"]{1,512})"/i,
+  /X-OWA-CANARY[^"]{0,200}"\s{0,32},\s{0,32}"([^"]{1,512})"/i,
+  /data-canary="([^"]{1,512})"/i,
+  /canary:\s{0,32}'([^']{1,512})'/i,
 ];
 
+/** The token is near the top of OWA's page; a multi-megabyte answer is not scanned to the end. */
+const MAX_CANARY_SCAN = 4 * 1024 * 1024;
+
 export function extractCanaryFromHtml(html: string): string | undefined {
+  const text = html.length > MAX_CANARY_SCAN ? html.slice(0, MAX_CANARY_SCAN) : html;
   for (const re of CANARY_PATTERNS) {
-    const m = re.exec(html);
+    const m = re.exec(text);
     if (m?.[1]) return m[1];
   }
   return undefined;
@@ -49,39 +56,46 @@ export function fallbackLoginForm(base: string): LoginForm {
   };
 }
 
+/** A logon page is a few KB; the rest of a huge answer is not read, and each tag is looked at once. */
+const MAX_FORM_HTML = 256 * 1024;
+const MAX_HIDDEN_FIELDS = 64;
+
+/** A tag's attribute value, either quote style. The tag text is already cut to one tag, so this is bounded. */
+function attr(tag: string, name: string): string | undefined {
+  const m = new RegExp(`[\\s"']${name}\\s{0,8}=\\s{0,8}(?:"([^"]*)"|'([^']*)')`, 'i').exec(tag);
+  return m ? (m[1] ?? m[2]) : undefined;
+}
+
+/** Start tags of the given names, in order. `[^<>]` keeps each match inside one tag, so the scan is linear. */
+function* tags(html: string, ...names: string[]): Generator<{ name: string; text: string }> {
+  const re = new RegExp(`<(${names.join('|')})(?=[\\s/>])[^<>]{0,4000}>`, 'gi');
+  for (const m of html.slice(0, MAX_FORM_HTML).matchAll(re)) yield { name: m[1].toLowerCase(), text: m[0] };
+}
+
 /**
- * Reads the logon form. An absolute `action` is accepted only on the host that served the page
+ * Reads the logon form. An absolute `action` is accepted only on the origin that served the page
  * (federation posts back to itself); a form that points somewhere else keeps /owa/auth.owa.
  */
 export function parseLoginForm(html: string, pageUrl: string, base: string): LoginForm {
   const fallback = fallbackLoginForm(base);
   const page = new URL(pageUrl);
   let action = fallback.action;
-  const am = /<form[^>]+action="([^"]+)"/i.exec(html);
-  if (am) {
-    const raw = am[1].replaceAll('&amp;', '&');
-    if (/^https?:/i.test(raw)) {
-      try {
-        if (new URL(raw).hostname.toLowerCase() === page.hostname.toLowerCase()) action = raw;
-      } catch {
-        /* keep default */
-      }
-    } else {
-      try {
-        action = new URL(raw, pageUrl).toString();
-      } catch {
-        /* keep default */
-      }
-    }
-  }
-
+  let formSeen = false;
   const hidden: Array<[string, string]> = [];
-  for (const m of html.matchAll(/<input[^>]+type="hidden"[^>]+name="([^"]*)"[^>]+value="([^"]*)"/gi)) {
-    hidden.push([m[1], m[2]]);
-  }
-  if (!hidden.length) {
-    for (const m of html.matchAll(/<input[^>]+type="hidden"[^>]+value="([^"]*)"[^>]+name="([^"]*)"/gi)) {
-      hidden.push([m[2], m[1]]);
+  for (const t of tags(html, 'form', 'input')) {
+    if (t.name === 'form') {
+      const raw = attr(t.text, 'action');
+      if (formSeen || raw === undefined) continue;
+      formSeen = true;
+      try {
+        const resolved = new URL(raw.replaceAll('&amp;', '&'), pageUrl);
+        if (resolved.protocol === 'https:' && resolved.host.toLowerCase() === page.host.toLowerCase()) action = resolved.toString();
+      } catch {
+        /* keep default */
+      }
+    } else if (hidden.length < MAX_HIDDEN_FIELDS && attr(t.text, 'type')?.toLowerCase() === 'hidden') {
+      const name = attr(t.text, 'name');
+      if (name) hidden.push([clip(name, 256), clip(attr(t.text, 'value') ?? '', 4096)]);
     }
   }
   return { action, hiddenFields: hidden.length ? hidden : fallback.hiddenFields, referer: pageUrl };
@@ -89,26 +103,39 @@ export function parseLoginForm(html: string, pageUrl: string, base: string): Log
 
 /**
  * The only form a password may be posted to: OWA's own forms-based authentication, which always
- * posts to `…/auth.owa` on the same host and has a password field. A 404 page, a portal or a
- * reverse-proxy login page gets null, and the caller explains instead of sending the password.
+ * posts to `…/auth.owa` over https on the same host and port and has a password field. A 404 page,
+ * a portal or a reverse-proxy login page gets null, and the caller explains instead of sending the password.
  */
 export function owaLoginForm(html: string, pageUrl: string, base: string): LoginForm | null {
-  if (!/<input[^<>]+type="password"/i.test(html) && !/<input[^<>]+name="(?:password|passwd)"/i.test(html)) return null;
+  let hasPassword = false;
+  for (const t of tags(html, 'input')) {
+    if (attr(t.text, 'type')?.toLowerCase() === 'password' || /^(?:password|passwd)$/i.test(attr(t.text, 'name') ?? '')) {
+      hasPassword = true;
+      break;
+    }
+  }
+  if (!hasPassword) return null;
   const raw = formActionOf(html);
   if (!raw) return null;
   try {
     const action = new URL(raw.replaceAll('&amp;', '&'), pageUrl);
+    // A cleartext action would send the password where anyone on the path can read it, even from a trusted host.
+    if (action.protocol !== 'https:') return null;
     if (!/\/auth\.owa$/i.test(action.pathname)) return null;
-    if (action.hostname.toLowerCase() !== new URL(base).hostname.toLowerCase()) return null;
+    if (action.host.toLowerCase() !== new URL(base).host.toLowerCase()) return null;
   } catch {
     return null;
   }
   return parseLoginForm(html, pageUrl, base);
 }
 
-/** Where a page's first form posts, for an error message. */
+/** Where a page's first form posts, for an error message (cleaned: it is the server's text). */
 export function formActionOf(html: string): string | undefined {
-  return /<form[^<>]+action="([^"<>]+)"/i.exec(html)?.[1];
+  for (const t of tags(html, 'form')) {
+    const raw = attr(t.text, 'action');
+    if (raw !== undefined) return oneLine(raw, 300);
+  }
+  return undefined;
 }
 
 export function loginFormBody(form: LoginForm, username: string, password: string): string {
@@ -180,6 +207,27 @@ type Json = Record<string, unknown>;
 const obj = (v: unknown): Json | undefined => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Json) : undefined);
 const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
 
+// Exchange enforces its own limits, but a server (or whatever answers in its place) is not trusted
+// to: every text that reaches the window, the tray or the cache is cut to a sane size and stripped
+// of control and bidi-override characters.
+const MAX_EVENTS = 3000;
+const MAX_TITLE = 500;
+const MAX_LOCATION = 500;
+const MAX_PERSON = 200;
+const MAX_PREVIEW = 600;
+const MAX_CATEGORIES = 20;
+const MAX_ID = 2048;
+const MAX_ATTENDEES = 500;
+const MAX_BODY_TEXT = 100_000;
+/** JSON nesting followed when looking for folders and attendees. */
+const MAX_DEPTH = 40;
+/** Text from a body that is scanned for a preview: the beginning is all that is shown. */
+const PREVIEW_SOURCE = 20_000;
+const text = (v: unknown, max: number): string | undefined => {
+  const s = str(v);
+  return s === undefined ? undefined : clean(s, max);
+};
+
 function bodyValue(v: unknown): string | undefined {
   if (typeof v === 'string') return v;
   return str(obj(v)?.Value);
@@ -205,7 +253,8 @@ function categories(raw: unknown): string[] {
       }
       return undefined;
     })
-    .map((s) => s?.trim())
+    .slice(0, MAX_CATEGORIES)
+    .map((s) => (s === undefined ? undefined : clean(s, 100).trim()))
     .filter((s): s is string => !!s);
 }
 
@@ -227,7 +276,7 @@ function resolveJoin(item: Json): { joinUrl?: string; platform: CalendarEvent['p
 export function mapCalendarItem(raw: unknown): CalendarEvent | null {
   const item = obj(raw);
   if (!item) return null;
-  const title = str(item.Subject);
+  const title = text(item.Subject, MAX_TITLE);
   const start = parseOwaDate(str(item.Start));
   const end = parseOwaDate(str(item.End));
   if (title === undefined || !start || !end) return null;
@@ -238,15 +287,15 @@ export function mapCalendarItem(raw: unknown): CalendarEvent | null {
   const { joinUrl, platform } = resolveJoin(item);
 
   return {
-    id: str(itemId?.Id) ?? `${title}-${start.toISOString()}`,
-    changeKey: str(itemId?.ChangeKey),
+    id: clip(str(itemId?.Id) ?? `${title}-${start.toISOString()}`, MAX_ID),
+    changeKey: str(itemId?.ChangeKey) ? clip(str(itemId?.ChangeKey)!, 512) : undefined,
     title,
     start: start.toISOString(),
     end: end.toISOString(),
     isAllDay: item.IsAllDayEvent === true,
-    location: str(obj(item.Location)?.DisplayName) || undefined,
-    organizer: str(obj(obj(item.Organizer)?.Mailbox)?.Name) || undefined,
-    bodyPreview: preview ? stripHtml(preview).replace(/\s+/g, ' ').trim() : undefined,
+    location: text(obj(item.Location)?.DisplayName, MAX_LOCATION) || undefined,
+    organizer: text(obj(obj(item.Organizer)?.Mailbox)?.Name, MAX_PERSON) || undefined,
+    bodyPreview: preview ? clean(stripHtml(preview.slice(0, PREVIEW_SOURCE)), PREVIEW_SOURCE).replace(/\s+/g, ' ').trim().slice(0, MAX_PREVIEW) || undefined : undefined,
     joinUrl,
     platform,
     isCancelled: item.IsCancelled === true,
@@ -260,7 +309,7 @@ export function mapCalendarItem(raw: unknown): CalendarEvent | null {
 export function parseCalendarView(json: unknown): CalendarEvent[] {
   const items = obj(obj(json)?.Body)?.Items;
   if (!Array.isArray(items)) return [];
-  return items.map(mapCalendarItem).filter((e): e is CalendarEvent => !!e);
+  return items.slice(0, MAX_EVENTS).map(mapCalendarItem).filter((e): e is CalendarEvent => !!e);
 }
 
 // ---------- GetCalendarFolders ----------
@@ -274,8 +323,9 @@ export function defaultCalendarFolder(json: unknown): FolderIdentifier | undefin
     isDefaultCalendar: boolean;
   }
   const out: Candidate[] = [];
-  const walk = (v: unknown) => {
-    if (Array.isArray(v)) return v.forEach(walk);
+  const walk = (v: unknown, depth = 0) => {
+    if (depth > MAX_DEPTH) return;
+    if (Array.isArray(v)) return v.forEach((x) => walk(x, depth + 1));
     const o = obj(v);
     if (!o) return;
     const fid = obj(o.FolderId);
@@ -289,7 +339,7 @@ export function defaultCalendarFolder(json: unknown): FolderIdentifier | undefin
         isDefaultCalendar: o.IsDefaultCalendar === true,
       });
     }
-    Object.values(o).forEach(walk);
+    Object.values(o).forEach((x) => walk(x, depth + 1));
   };
   walk(json);
   return (
@@ -305,8 +355,8 @@ function parseAttendee(v: unknown, kind: EventAttendee['kind']): EventAttendee |
   const o = obj(v);
   if (!o) return null;
   const mailbox = obj(o.Mailbox);
-  const name = (str(mailbox?.Name) ?? str(o.Name) ?? '').trim();
-  const email = (str(mailbox?.EmailAddress) ?? str(o.EmailAddress))?.trim() || undefined;
+  const name = clean(str(mailbox?.Name) ?? str(o.Name) ?? '', MAX_PERSON).trim();
+  const email = clean(str(mailbox?.EmailAddress) ?? str(o.EmailAddress) ?? '', 320).trim() || undefined;
   const display = name || email || '';
   if (!display) return null;
   return { name: display, email, kind, response: mapResponseType(o.ResponseType, false) };
@@ -315,7 +365,10 @@ function parseAttendee(v: unknown, kind: EventAttendee['kind']): EventAttendee |
 function parseAttendeeContainer(v: unknown, kind: EventAttendee['kind']): EventAttendee[] {
   const inner = obj(v)?.Attendee ?? v;
   const list = Array.isArray(inner) ? inner : [inner];
-  return list.map((a) => parseAttendee(a, kind)).filter((a): a is EventAttendee => !!a);
+  return list
+    .slice(0, MAX_ATTENDEES)
+    .map((a) => parseAttendee(a, kind))
+    .filter((a): a is EventAttendee => !!a);
 }
 
 const BODY_FIELDS = ['TextBody', 'UniqueBody', 'Body', 'NormalizedBody'] as const;
@@ -324,8 +377,9 @@ export function parseEventDetails(json: unknown): EventDetails {
   const attendees: EventAttendee[] = [];
   const bodies: Partial<Record<(typeof BODY_FIELDS)[number], { value: string; isHtml: boolean }>> = {};
 
-  const walk = (v: unknown) => {
-    if (Array.isArray(v)) return v.forEach(walk);
+  const walk = (v: unknown, depth = 0) => {
+    if (depth > MAX_DEPTH || attendees.length >= MAX_ATTENDEES * 2) return;
+    if (Array.isArray(v)) return v.forEach((x) => walk(x, depth + 1));
     const o = obj(v);
     if (!o) return;
     if (o.RequiredAttendees) attendees.push(...parseAttendeeContainer(o.RequiredAttendees, 'required'));
@@ -338,16 +392,18 @@ export function parseEventDetails(json: unknown): EventDetails {
       }
     }
     for (const [k, nested] of Object.entries(o)) {
-      if (k !== 'RequiredAttendees' && k !== 'OptionalAttendees') walk(nested);
+      if (k !== 'RequiredAttendees' && k !== 'OptionalAttendees') walk(nested, depth + 1);
     }
   };
   walk(json);
 
+  const capped = attendees.slice(0, MAX_ATTENDEES * 2);
   const body = BODY_FIELDS.map((f) => bodies[f]).find(Boolean);
-  if (!body) return { attendees };
-  const isHtml = body.isHtml || /<\/?[a-z][\s\S]*>/i.test(body.value);
-  const text = isHtml ? htmlToText(body.value) : body.value.trim();
-  return { attendees, bodyText: text || undefined, bodyHtml: isHtml ? body.value : undefined };
+  if (!body) return { attendees: capped };
+  const isHtml = body.isHtml || /<\/?[a-z][^<>]{0,200}>/i.test(body.value.slice(0, 50_000));
+  // Only text goes to the window: markup from a stranger's invite never leaves this function.
+  const readable = isHtml ? htmlToText(body.value) : body.value.trim().slice(0, MAX_BODY_TEXT * 2);
+  return { attendees: capped, bodyText: clean(readable, MAX_BODY_TEXT) || undefined };
 }
 
 const ENTITIES: Record<string, string> = { nbsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", '#39': "'" };
@@ -376,28 +432,57 @@ function removeBlocks(html: string, name: string): string {
   return out + html.slice(pos);
 }
 
+/** `<a href="https://…">label</a>` → `label (https://…)`, in one pass with indexOf so unclosed tags cost nothing extra. */
+function linkText(html: string): string {
+  const lower = html.toLowerCase();
+  let out = '';
+  let pos = 0;
+  let gt = -2; // next '>' at or after the current anchor (-1: there is none, so there is no further tag at all)
+  let close = -2; // next '</a>'
+  for (;;) {
+    let a = lower.indexOf('<a', pos);
+    while (a >= 0 && !/\s/.test(lower[a + 2] ?? '')) a = lower.indexOf('<a', a + 2);
+    if (a < 0) break;
+    if (gt !== -1 && gt < a) gt = lower.indexOf('>', a);
+    if (gt < 0) break;
+    const tag = html.slice(a, gt + 1);
+    const href = tag.length <= 4000 && !tag.includes('<', 1) ? /\shref="(https?:[^"<>]+)"/i.exec(tag)?.[1] : undefined;
+    if (href === undefined) {
+      out += html.slice(pos, a + 2);
+      pos = a + 2;
+      continue;
+    }
+    if (close !== -1 && close < gt) close = lower.indexOf('</a>', gt);
+    if (close < 0) break; // never closed, and no later anchor can be closed either
+    const label = html.slice(gt + 1, close).replace(/<[^<>]*>/g, '').trim();
+    out += html.slice(pos, a) + (label && label !== href ? `${label} (${href})` : href);
+    pos = close + 4;
+  }
+  return out + html.slice(pos);
+}
+
 export function htmlToText(input: string): string {
   let html = input.length > MAX_BODY_CHARS ? input.slice(0, MAX_BODY_CHARS) : input;
   for (const tag of ['script', 'style', 'head']) html = removeBlocks(html, tag);
-  return html
-    .replace(/<br\s*\/?>/gi, '\n')
+  const text = linkText(html)
+    .replace(/<br\s{0,16}\/?>/gi, '\n')
     .replace(/<\/(p|div|tr|li|h[1-6])>/gi, '\n')
     .replace(/<li[^<>]*>/gi, '• ')
     .replace(/<\/t[dh]>/gi, '\t')
-    .replace(/<a[^<>]+href="(https?:[^"<>]+)"[^<>]*>([^<]*(?:<(?!\/a>)[^<]*)*)<\/a>/gi, (_m, href: string, label: string) => {
-      const text = label.replace(/<[^<>]*>/g, '').trim();
-      return text && text !== href ? `${text} (${href})` : href;
-    })
     .replace(/<[^<>]*>/g, '')
-    .replace(/&(#?\w+);/g, (m, e: string) => {
+    .replace(/&(#?\w{1,12});/g, (m, e: string) => {
       if (ENTITIES[e]) return ENTITIES[e];
       if (e.startsWith('#')) {
         const code = e[1] === 'x' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
         return Number.isInteger(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : m;
       }
       return m;
-    })
-    .replace(/[ \t]+\n/g, '\n')
+    });
+  // Line by line: a regex for "spaces before a newline" rescans a long run of spaces from every position.
+  return text
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .join('\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }

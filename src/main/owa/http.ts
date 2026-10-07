@@ -5,7 +5,8 @@ import type { CertInfo } from '../../shared/types';
 import { log, safeUrlForLog } from '../log';
 import { certReason, OwaError } from './errors';
 export { OwaError, type OwaErrorKind } from './errors';
-import { redirectRefusal } from './redirect';
+import { redirectRefusal, requestRefusal } from './redirect';
+import { oneLine } from '../../shared/text';
 
 /** A calendar answer is a few hundred KB; anything bigger is a broken or hostile server. */
 const MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
@@ -30,6 +31,9 @@ export interface HttpRequest {
 export interface CredentialPolicy {
   /** The only host that may receive an NTLM / Negotiate / Basic answer. */
   host: string;
+  port: number;
+  /** `host[:port]` of the configured server: the only place a request, a redirect or a login form may lead. */
+  origin: string;
   username?: string;
   password?: string;
 }
@@ -41,6 +45,14 @@ export interface CertState {
 
 export function sendRequest(ses: Session, req: HttpRequest, creds: CredentialPolicy, cert: CertState): Promise<HttpResponse> {
   return new Promise((resolve, reject) => {
+    // Every request, not only a redirect, stays on the configured https origin: a login form that
+    // names http:// or another port must not get the password.
+    const refused = requestRefusal(req.url, creds.origin);
+    if (refused) {
+      log.warn(`${req.method ?? 'GET'} ${safeUrlForLog(req.url)}: refused (${refused})`);
+      reject(new OwaError('loginHost', refused));
+      return;
+    }
     const redirects: string[] = [];
     let currentUrl = req.url;
     let loginAttempts = 0;
@@ -77,7 +89,7 @@ export function sendRequest(ses: Session, req: HttpRequest, creds: CredentialPol
     request.on('redirect', (status, _method, redirectUrl) => {
       // A 307/308 would re-send the POST body (it carries the password on forms login), and custom
       // headers such as the CANARY follow the request: never leave the configured host or HTTPS.
-      const refusal = redirectRefusal(redirectUrl, creds.host);
+      const refusal = redirectRefusal(redirectUrl, creds.origin);
       if (refusal) {
         log.warn(`${tag}: redirect refused → ${safeUrlForLog(redirectUrl)}`);
         fail(new OwaError('loginHost', refusal));
@@ -96,11 +108,11 @@ export function sendRequest(ses: Session, req: HttpRequest, creds: CredentialPol
         return;
       }
       loginAttempts += 1;
-      const hostOk = authInfo.host.toLowerCase() === creds.host.toLowerCase();
-      log.info(`${tag}: ${authInfo.scheme} challenge from ${authInfo.host}${hostOk ? '' : ' (foreign host, no credentials)'}${creds.username ? '' : ' (no stored login)'}`);
+      const hostOk = authInfo.host.toLowerCase() === creds.host.toLowerCase() && authInfo.port === creds.port;
+      log.info(`${tag}: ${authInfo.scheme} challenge from ${oneLine(authInfo.host, 100)}:${authInfo.port}${hostOk ? '' : ' (foreign host, no credentials)'}${creds.username ? '' : ' (no stored login)'}`);
       if (!hostOk) {
         // Never hand the domain password to a host other than the configured server.
-        foreignAuthHost = authInfo.host;
+        foreignAuthHost = oneLine(`${authInfo.host}:${authInfo.port}`, 120);
         callback();
         return;
       }
@@ -205,11 +217,12 @@ export function configureSession(ses: Session, host: string, opts: { useWindowsA
     }
     if (request.hostname.toLowerCase() === host.toLowerCase()) {
       const c = request.certificate;
+      // The names inside a certificate are written by whoever made it: shown and logged as one clean line.
       cert.lastUntrusted = {
-        host: request.hostname,
+        host: oneLine(request.hostname, 255),
         fingerprint: fp,
-        issuer: c.issuerName || c.issuer?.commonName || '?',
-        subject: c.subjectName || c.subject?.commonName || '?',
+        issuer: oneLine(c.issuerName || c.issuer?.commonName || '?', 200),
+        subject: oneLine(c.subjectName || c.subject?.commonName || '?', 200),
         validTo: new Date(c.validExpiry * 1000).toISOString(),
         reason: certReason(request.verificationResult, request.errorCode),
       };

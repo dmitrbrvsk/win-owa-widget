@@ -4,6 +4,7 @@
 import { app } from 'electron';
 import { appendFileSync, existsSync, mkdirSync, renameSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { logLine } from '../shared/text';
 
 const MAX_BYTES = 1_000_000;
 let file: string | undefined;
@@ -30,7 +31,7 @@ function rotate(path: string) {
 }
 
 function write(level: 'info' | 'warn' | 'error', message: string) {
-  const line = `${new Date().toISOString()} ${level.padEnd(5)} ${message}\n`;
+  const line = `${new Date().toISOString()} ${level.padEnd(5)} ${logLine(message)}\n`;
   try {
     const path = logPath();
     rotate(path);

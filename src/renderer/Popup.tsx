@@ -49,6 +49,20 @@ export function Popup({ snap }: { snap: Snapshot }) {
     [],
   );
 
+  // A notification about a meeting was clicked: show that meeting.
+  const events = snap.events;
+  useEffect(
+    () =>
+      api.onOpenEvent((id) => {
+        const e = events.find((x) => x.id === id);
+        if (e) {
+          setDay(startOfDay(new Date(e.start)));
+          setOpen(e);
+        }
+      }),
+    [events],
+  );
+
   const toast = useCallback((m: string) => {
     setToastMsg(m);
     setTimeout(() => setToastMsg(null), 2200);

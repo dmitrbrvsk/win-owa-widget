@@ -83,6 +83,7 @@ const ru = {
   } as Record<string, string>,
   saveServer: 'Сохранить адрес',
   serverSaved: 'Адрес сохранён, календарь обновляется',
+  passwordDropped: 'Сохранённый пароль относился к прежнему серверу и удалён — введите пароль для этого сервера.',
   credentialsHint: 'Если оставить логин и пароль пустыми, вход будет под учётной записью Windows (на доменном компьютере пароль не нужен).',
   username: 'Логин',
   usernameHint: 'DOMAIN\\login или login@company.ru',
@@ -105,6 +106,13 @@ const ru = {
   workdayFrom: 'с',
   workdayTo: 'до',
   everyMin: (n: number) => `Каждые ${n} мин`,
+  notifyChanges: 'Сообщать об изменениях встреч',
+  notifyChangesHint: 'Уведомление Windows, когда встречу перенесли или отменили и когда пришло новое приглашение',
+  reminderStyle: 'Как показывать напоминание',
+  reminderStyleHint: 'Уведомление Windows — с кнопками «Подключиться» и «Отложить», видно и поверх полноэкранных программ. Своё окно — всегда видно, даже если уведомления Windows отключены.',
+  reminderStyleAuto: 'Автоматически',
+  reminderStyleSystem: 'Уведомление Windows',
+  reminderStyleWindow: 'Окно приложения',
   launchAtLogin: 'Запускать при входе в Windows',
   joinHotkey: 'Ctrl+Alt+J подключает к текущей встрече',
   appearance: 'Внешний вид',
@@ -132,6 +140,9 @@ const ru = {
   diagnostics: 'Диагностика',
   logHint: 'Журнал работы: адреса запросов, коды ответов и ошибки. Паролей, cookie и содержимого встреч в нём нет.',
   openLog: 'Открыть папку с журналом',
+  clearCache: 'Сбросить кэш',
+  clearCacheHint: 'Забывает сохранённый список встреч и сеанс на сервере, затем загружает всё заново. Пароль и настройки остаются.',
+  cacheCleared: 'Кэш сброшен, календарь загружается заново',
 };
 
 type Dict = typeof ru;
@@ -215,6 +226,7 @@ const en: Dict = {
   },
   saveServer: 'Save address',
   serverSaved: 'Address saved, refreshing the calendar',
+  passwordDropped: 'The saved password belonged to the previous server and was removed — enter the password for this one.',
   credentialsHint: 'Leave login and password empty to sign in with your Windows account (no password needed on a domain-joined PC).',
   username: 'Login',
   usernameHint: 'DOMAIN\\login or login@company.com',
@@ -237,6 +249,13 @@ const en: Dict = {
   workdayFrom: 'from',
   workdayTo: 'to',
   everyMin: (n) => `Every ${n} min`,
+  notifyChanges: 'Notify about meeting changes',
+  notifyChangesHint: 'A Windows notification when a meeting is moved or cancelled, and for new invitations',
+  reminderStyle: 'How to show the reminder',
+  reminderStyleHint: 'A Windows notification has Join and Snooze buttons and also shows over full-screen programs. The app window always shows, even when Windows notifications are off.',
+  reminderStyleAuto: 'Automatic',
+  reminderStyleSystem: 'Windows notification',
+  reminderStyleWindow: 'App window',
   launchAtLogin: 'Start when I sign in to Windows',
   joinHotkey: 'Ctrl+Alt+J joins the current meeting',
   appearance: 'Appearance',
@@ -264,6 +283,9 @@ const en: Dict = {
   diagnostics: 'Diagnostics',
   logHint: 'Activity log: request addresses, response codes and errors. No passwords, cookies or meeting contents.',
   openLog: 'Open log folder',
+  clearCache: 'Reset cache',
+  clearCacheHint: 'Forgets the saved meeting list and the server session, then loads everything again. Your password and settings stay.',
+  cacheCleared: 'Cache reset, reloading the calendar',
 };
 
 function plural(n: number, one: string, few: string, many: string) {

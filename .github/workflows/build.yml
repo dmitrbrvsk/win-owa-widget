@@ -20,9 +20,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
-        env:
-          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - run: npm ci --ignore-scripts
       - run: npm run typecheck
       - run: TZ=Europe/Moscow npm test
       # Fails the build when a dependency that ends up in the app has a known vulnerability.
@@ -38,11 +36,15 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+      # No dependency cache here: this job produces the files that get published, so nothing a
+      # cache could carry in from another run is allowed into it.
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
-          cache: npm
-      - run: npm ci
+      # Install scripts of third-party packages do not run. Electron's own installer is started by
+      # hand: it downloads the binary and checks it against the checksums shipped in the package.
+      - run: npm ci --ignore-scripts
+      - run: node node_modules/electron/install.js
       - run: npm run dist
       # Opens the popup and the settings window from source on a real Windows desktop and fails if
       # either page did not render (the IPC sender check compares file paths, which differ per OS).
@@ -55,6 +57,27 @@ jobs:
           # The app exits 0 only when both pages rendered (see OWA_SMOKE_SHOT in src/main/index.ts).
           npx electron .
           if ($LASTEXITCODE -ne 0) { Write-Error "smoke failed with exit code $LASTEXITCODE"; exit 1 }
+      # The built app, not the source tree: starts the unpacked .exe with a throwaway profile (no server
+      # configured, so nothing is sent anywhere) and fails if it exits, or if the log shows a window that
+      # did not load or a page the IPC check turned away (what a blank window looks like).
+      - name: Start the packaged app
+        shell: pwsh
+        run: |
+          $data = Join-Path $env:RUNNER_TEMP 'owa-profile'
+          New-Item -ItemType Directory -Force $data | Out-Null
+          '{"account":{"serverUrl":""}}' | Set-Content -Path (Join-Path $data 'settings.json') -Encoding utf8
+          $exe = (Resolve-Path 'release/win-unpacked/OWA Widget.exe').Path
+          $p = Start-Process -FilePath $exe -ArgumentList "--user-data-dir=$data" -PassThru
+          Start-Sleep -Seconds 15
+          $alive = -not $p.HasExited
+          $log = Get-ChildItem -Path $data -Recurse -Filter 'owa-widget.log' -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($log) { Get-Content $log.FullName } else { Write-Host 'no log file found' }
+          Get-Process -Name 'OWA Widget' -ErrorAction SilentlyContinue | Stop-Process -Force
+          if (-not $alive) { Write-Error 'the packaged app exited'; exit 1 }
+          if (-not $log) { Write-Error 'the packaged app wrote no log'; exit 1 }
+          $text = Get-Content $log.FullName -Raw
+          if ($text -notmatch 'start: OWA Widget') { Write-Error 'no start entry in the log'; exit 1 }
+          if ($text -match 'page failed to load|renderer gone|preload error|ipc: rejected|uncaught|unhandled') { Write-Error 'the log reports a failure'; exit 1 }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:

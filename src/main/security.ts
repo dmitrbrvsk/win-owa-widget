@@ -54,6 +54,13 @@ export function hardenWebContents(contents: WebContents) {
     }
   });
   contents.on('will-redirect', (e) => e.preventDefault());
+  // Frames inside a page never navigate anywhere but our own page either.
+  contents.on('will-frame-navigate', (e) => {
+    if (!isTrustedUrl(e.url)) {
+      log.warn(`frame navigation blocked: ${e.url}`);
+      e.preventDefault();
+    }
+  });
   contents.on('will-attach-webview', (e) => e.preventDefault());
 
   // Whatever goes wrong inside a window ends up in the log instead of a silently blank page.

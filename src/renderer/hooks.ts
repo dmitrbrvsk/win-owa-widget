@@ -4,6 +4,12 @@ import { api } from './api';
 import { dict, resolveLang, type Dict, type Lang } from './i18n';
 
 /** The first snapshot, or the reason it never came: a page must never stay silently blank. */
+/** Electron prefixes errors from the main process with "Error invoking remote method '…': Error: "; the person needs only the rest. */
+export function ipcMessage(e: unknown): string {
+  const raw = e instanceof Error ? e.message : String(e);
+  return raw.replace(/^Error invoking remote method '[^']*':\s*(?:Error:\s*)?/, '');
+}
+
 export function useSnapshot(): { snap: Snapshot | null; error: string | null } {
   const [snap, setSnap] = useState<Snapshot | null>(null);
   const [error, setError] = useState<string | null>(null);

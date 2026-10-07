@@ -6,6 +6,7 @@ import type { CalendarEvent, CertInfo, EventDetails, RsvpAction } from '../../sh
 import { configureSession, OwaError, sendRequest, type CertState, type HttpRequest, type HttpResponse } from './http';
 import { parseBaseUrl } from './serverUrl';
 import { safeUrlForLog } from '../log';
+import { oneLine } from '../../shared/text';
 import type { LoginForm } from './parse';
 import { validCanary } from './parse';
 export { parseBaseUrl } from './serverUrl';
@@ -51,6 +52,9 @@ const OWA_BUILD = '15.2.1748.10';
 export class OwaClient {
   readonly base: string;
   readonly host: string;
+  /** `host[:port]`, the one origin this client talks to. */
+  private readonly origin: string;
+  private readonly port: number;
   private readonly ses: Session;
   private readonly cert: CertState = {};
   private canary?: string;
@@ -60,7 +64,10 @@ export class OwaClient {
 
   constructor(private readonly opts: OwaClientOptions) {
     this.base = parseBaseUrl(opts.serverUrl);
-    this.host = new URL(this.base).hostname;
+    const baseUrl = new URL(this.base);
+    this.host = baseUrl.hostname;
+    this.origin = baseUrl.host;
+    this.port = Number(baseUrl.port || 443);
     // In-memory partition (no "persist:" prefix): cookies live only as long as the app runs. The
     // partition is reused, so a new client starts by clearing whatever the previous one left.
     this.ses = electronSession.fromPartition(opts.partition ?? 'owa', { cache: false });
@@ -75,7 +82,7 @@ export class OwaClient {
   }
 
   private send(req: HttpRequest): Promise<HttpResponse> {
-    return sendRequest(this.ses, req, { host: this.host, username: this.opts.username, password: this.opts.password }, this.cert);
+    return sendRequest(this.ses, req, { host: this.host, port: this.port, origin: this.origin, username: this.opts.username, password: this.opts.password }, this.cert);
   }
 
   private url(path: string) {
@@ -124,9 +131,9 @@ export class OwaClient {
     // The password goes only to OWA's own logon form (…/auth.owa on this host), never to whatever form a page happens to have.
     const form = (logonPage ? owaLoginForm(page.text(), page.url, this.base) : null) ?? (await this.fetchLoginForm(page));
 
-    const actionHost = new URL(form.action).hostname.toLowerCase();
-    if (actionHost !== this.host.toLowerCase()) {
-      throw new OwaError('loginHost', `Форма входа отправляет пароль на другой хост: ${actionHost}`);
+    const action = new URL(form.action);
+    if (action.protocol !== 'https:' || action.host.toLowerCase() !== this.origin.toLowerCase()) {
+      throw new OwaError('loginHost', `Форма входа отправляет пароль не на ${this.origin} по https: ${oneLine(action.protocol + '//' + action.host, 120)}`);
     }
 
     const auth = await this.send({
@@ -162,9 +169,15 @@ export class OwaClient {
     const form = res.status >= 200 && res.status < 300 ? owaLoginForm(res.text(), res.url, this.base) : null;
     if (form) return form;
     const action = formActionOf(res.text());
-    log.warn(`auth: /owa/auth/logon.aspx → HTTP ${res.status}, ${action ? `form posts to ${safeUrlForLog(new URL(action, res.url).toString())}` : 'no login form'}; password not sent`);
+    let target = action ?? '';
+    try {
+      if (action) target = safeUrlForLog(new URL(action.replaceAll('&amp;', '&'), res.url).toString());
+    } catch {
+      /* the raw (already cleaned) text is shown instead */
+    }
+    log.warn(`auth: /owa/auth/logon.aspx → HTTP ${res.status}, ${action ? `form posts to ${target}` : 'no login form'}; password not sent`);
     if (res.status >= 200 && res.status < 300 && action) {
-      throw new OwaError('server', `Страница входа на ${this.host} не похожа на форму OWA (отправляет данные на ${action}). Пароль не отправлен`, res.status);
+      throw new OwaError('server', `Страница входа на ${this.host} не похожа на форму OWA (отправляет данные на ${target}). Пароль не отправлен`, res.status);
     }
     throw this.notOwa(owaPage);
   }

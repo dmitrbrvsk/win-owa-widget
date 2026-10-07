@@ -1,13 +1,14 @@
 // Owns the account, the sync loop and the current meeting list.
 import { EventEmitter } from 'node:events';
-import type { AppSettings, CalendarEvent, CertInfo, ConnectionTestResult, EventDetails, RsvpAction, SettingsUpdate, SyncState } from '../shared/types';
+import type { AppSettings, CalendarEvent, CertInfo, ConnectionTestResult, EventDetails, RsvpAction, SaveResult, SettingsUpdate, SyncState } from '../shared/types';
 import { describeError, log } from './log';
 import { OwaClient } from './owa/client';
 import { OwaError } from './owa/http';
-import { checkServerUrl, serverUrlError } from '../shared/serverUrl';
+import { checkServerUrl, serverKey, serverUrlError } from '../shared/serverUrl';
 import { sanitizeUpdate } from '../shared/validate';
+import { diffEvents } from '../shared/changes';
 import { demoDetails, demoEvents } from './demo';
-import { loadEventCache, loadPassword, loadSettings, saveEventCache, savePassword, saveSettings } from './store';
+import { clearEventCache, loadEventCache, loadPassword, loadSettings, saveEventCache, savePassword, saveSettings } from './store';
 
 const DAYS_BACK = 7;
 const DAYS_AHEAD = 30;
@@ -79,7 +80,8 @@ export class CalendarService extends EventEmitter {
     const a = this.settings.account;
     if (this.demo || !a.serverUrl) return;
     try {
-      const password = loadPassword();
+      // The saved password is only released for the server it was typed for.
+      const password = loadPassword(serverKey(a.serverUrl));
       this.client = new OwaClient({
         serverUrl: a.serverUrl,
         partition: 'owa',
@@ -128,7 +130,11 @@ export class CalendarService extends EventEmitter {
     try {
       const { start, end } = syncRange();
       const events = await this.client.fetchCalendarView(start, end);
+      const before = this.events;
       this.events = events.sort((a, b) => a.start.localeCompare(b.start));
+      // What moved, was cancelled or newly arrived since the list the widget showed a moment ago.
+      const changes = diffEvents(before, this.events, new Date());
+      if (changes.length) this.emit('changes', changes);
       this.authLatched = false;
       saveEventCache(this.events);
       log.info(`sync: ok, ${events.length} events`);
@@ -166,7 +172,36 @@ export class CalendarService extends EventEmitter {
     if (!this.demo) setTimeout(() => void this.syncNow('manual'), 1500);
   }
 
-  async applySettings(update: SettingsUpdate) {
+  /**
+   * "Reset cache": forgets the saved meeting list and the session with the server, then loads
+   * everything again. The password, the certificate pin and the settings are left alone. The list
+   * restarts empty, so what is loaded next is not announced as a flood of "new invitations".
+   */
+  async clearCache() {
+    // A sync that is running finishes first: its answer must not put the old list back.
+    await this.inFlight?.catch(() => undefined);
+    log.info('cache: cleared on request');
+    this.events = [];
+    clearEventCache();
+    this.authLatched = false;
+    this.emit('cacheCleared');
+    this.rebuildClient(); // a new client starts with an empty session: cookies and storage are dropped
+    this.emit('changed');
+    void this.syncNow('manual');
+  }
+
+  /**
+   * The server a settings update would switch to, or null when it stays the same. Switching is
+   * what points the password and the Windows identity at a new place, so the caller asks the
+   * person to confirm it in a native dialog first.
+   */
+  serverChangeOf(update: unknown): string | null {
+    if (this.demo) return null;
+    const next = serverKey(sanitizeUpdate(update, this.settings).settings.account.serverUrl);
+    return next && next !== serverKey(this.settings.account.serverUrl) ? next : null;
+  }
+
+  async applySettings(update: SettingsUpdate): Promise<SaveResult> {
     const prev = this.settings;
     // Whatever the renderer sent is rebuilt field by field: types, enums and ranges are enforced here.
     // The certificate pin and hasPassword are copied from the current state, never from the page.
@@ -176,9 +211,19 @@ export class CalendarService extends EventEmitter {
       if (!check.ok) throw new Error(serverUrlError(check));
       clean.settings.account.serverUrl = check.url.replace(/^https:\/\//, '');
     }
-    let hasPassword = prev.account.hasPassword;
-    if (clean.password !== undefined) hasPassword = savePassword(clean.password || undefined) && !!clean.password;
     const account = clean.settings.account;
+    const key = serverKey(account.serverUrl);
+    let hasPassword = prev.account.hasPassword;
+    let passwordRemoved = false;
+    if (clean.password !== undefined) {
+      hasPassword = savePassword(clean.password || undefined, key) && !!clean.password;
+    } else if (hasPassword && key !== serverKey(prev.account.serverUrl)) {
+      // The saved password was typed for the previous server; it is never sent to a different one.
+      savePassword(undefined, key);
+      hasPassword = false;
+      passwordRemoved = true;
+      log.info('password removed: it belonged to another server');
+    }
     this.settings = { ...clean.settings, account: { ...account, hasPassword, useWindowsAuth: !(account.username && hasPassword) } };
     saveSettings(this.settings);
 
@@ -196,6 +241,7 @@ export class CalendarService extends EventEmitter {
     if (prev.syncIntervalMinutes !== this.settings.syncIntervalMinutes) this.reschedule();
     this.emit('changed');
     this.emit('settings', prev, this.settings);
+    return { passwordRemoved };
   }
 
   async testConnection(update: SettingsUpdate): Promise<ConnectionTestResult> {
@@ -204,7 +250,7 @@ export class CalendarService extends EventEmitter {
     const a = clean.settings.account;
     let client: OwaClient | undefined;
     try {
-      const password = clean.password !== undefined ? clean.password || undefined : loadPassword();
+      const password = clean.password !== undefined ? clean.password || undefined : loadPassword(serverKey(a.serverUrl));
       client = new OwaClient({
         serverUrl: a.serverUrl,
         partition: 'owa-test',

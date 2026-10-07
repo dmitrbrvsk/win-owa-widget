@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { AppSettings, CertInfo, ConnectionTestResult, Snapshot } from '../shared/types';
 import { api } from './api';
-import { useI18n } from './hooks';
+import { ipcMessage, useI18n } from './hooks';
 import { checkServerUrl } from '../shared/serverUrl';
 
 function Switch({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
@@ -18,6 +18,8 @@ export function Settings({ snap }: { snap: Snapshot }) {
   const [saved, setSaved] = useState(false);
   const [serverSaved, setServerSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [passwordDropped, setPasswordDropped] = useState(false);
+  const [cacheMsg, setCacheMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const acc = s.account;
   // The pin lives in the main process; show the live value, not the form's copy.
@@ -42,12 +44,25 @@ export function Settings({ snap }: { snap: Snapshot }) {
     setTest(null);
   }
 
+  async function resetCache() {
+    setCacheMsg(null);
+    try {
+      await api.clearCache();
+      setCacheMsg({ ok: true, text: t.cacheCleared });
+      setTimeout(() => setCacheMsg(null), 4000);
+    } catch (e) {
+      setCacheMsg({ ok: false, text: ipcMessage(e) });
+    }
+  }
+
   async function save(what: 'all' | 'server' = 'all') {
     setSaveError(null);
+    setPasswordDropped(false);
     try {
-      await api.saveSettings(update());
+      const result = await api.saveSettings(update());
+      setPasswordDropped(result.passwordRemoved);
     } catch (e) {
-      setSaveError(e instanceof Error ? e.message : String(e));
+      setSaveError(ipcMessage(e));
       return;
     }
     setPassword('');
@@ -103,6 +118,11 @@ export function Settings({ snap }: { snap: Snapshot }) {
             {saveError && (
               <div className="msg bad" role="alert">
                 {saveError}
+              </div>
+            )}
+            {passwordDropped && (
+              <div className="msg bad" role="status">
+                {t.passwordDropped}
               </div>
             )}
           </div>
@@ -209,6 +229,17 @@ export function Settings({ snap }: { snap: Snapshot }) {
           </select>
         </div>
         <div className="setting-row">
+          <div className="label">
+            <div>{t.reminderStyle}</div>
+            <div className="hint">{t.reminderStyleHint}</div>
+          </div>
+          <select className="field" value={s.reminderStyle} onChange={(e) => setS({ ...s, reminderStyle: e.target.value as AppSettings['reminderStyle'] })}>
+            <option value="auto">{t.reminderStyleAuto}</option>
+            <option value="system">{t.reminderStyleSystem}</option>
+            <option value="window">{t.reminderStyleWindow}</option>
+          </select>
+        </div>
+        <div className="setting-row">
           <div className="label">{t.syncEvery}</div>
           <select className="field" value={s.syncIntervalMinutes} onChange={(e) => setS({ ...s, syncIntervalMinutes: Number(e.target.value) })}>
             {[2, 5, 10, 15, 30].map((m) => (
@@ -263,6 +294,13 @@ export function Settings({ snap }: { snap: Snapshot }) {
           <Switch checked={s.joinHotkeyEnabled} onChange={(v) => setS({ ...s, joinHotkeyEnabled: v })} label={t.joinHotkey} />
         </div>
         <div className="setting-row">
+          <div className="label">
+            <div>{t.notifyChanges}</div>
+            <div className="hint">{t.notifyChangesHint}</div>
+          </div>
+          <Switch checked={s.notifyChanges} onChange={(v) => setS({ ...s, notifyChanges: v })} label={t.notifyChanges} />
+        </div>
+        <div className="setting-row">
           <div className="label">{t.launchAtLogin}</div>
           <Switch checked={s.launchAtLogin} onChange={(v) => setS({ ...s, launchAtLogin: v })} label={t.launchAtLogin} />
         </div>
@@ -307,6 +345,19 @@ export function Settings({ snap }: { snap: Snapshot }) {
           </div>
           <button className="btn compact" onClick={() => void api.openLog()}>
             {t.openLog}
+          </button>
+        </div>
+        <div className="setting-row">
+          <div className="label">
+            <div className="hint">{t.clearCacheHint}</div>
+            {cacheMsg && (
+              <div className={`msg ${cacheMsg.ok ? 'ok' : 'bad'}`} role="status">
+                {cacheMsg.text}
+              </div>
+            )}
+          </div>
+          <button className="btn compact" onClick={() => void resetCache()}>
+            {t.clearCache}
           </button>
         </div>
       </div>

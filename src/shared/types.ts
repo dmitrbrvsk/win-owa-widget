@@ -38,8 +38,8 @@ export interface EventAttendee {
 
 export interface EventDetails {
   attendees: EventAttendee[];
+  /** Plain text only: markup from an invitation never reaches the window. */
   bodyText?: string;
-  bodyHtml?: string;
 }
 
 export type SyncPhase = 'idle' | 'syncing' | 'ok' | 'error' | 'notConfigured';
@@ -89,6 +89,8 @@ export interface AccountSettings {
   trustedCertHost?: string;
 }
 
+export type ReminderStyle = 'auto' | 'system' | 'window';
+
 export interface AppSettings {
   account: AccountSettings;
   syncIntervalMinutes: number;
@@ -97,6 +99,10 @@ export interface AppSettings {
   /** Hours the day timeline shows by default (meetings outside them widen the view). 0–23 and 1–24. */
   workdayStartHour: number;
   workdayEndHour: number;
+  /** A Windows notification when a meeting is moved or cancelled, or a new invitation arrives. */
+  notifyChanges: boolean;
+  /** Where the "meeting starts soon" reminder appears: a Windows notification with buttons, or the widget's own window. */
+  reminderStyle: ReminderStyle;
   launchAtLogin: boolean;
   theme: ThemePref;
   language: LanguagePref;
@@ -132,6 +138,11 @@ export interface TrayStatus {
   tooltip: string;
 }
 
+export interface SaveResult {
+  /** The stored password belonged to the previous server and was removed: the person has to enter it again. */
+  passwordRemoved: boolean;
+}
+
 export interface ConnectionTestResult {
   ok: boolean;
   message: string;
@@ -149,10 +160,12 @@ export interface OwaApi {
   respond(eventId: string, action: RsvpAction): Promise<void>;
   openUrl(url: string): Promise<void>;
   copyText(text: string): Promise<void>;
-  saveSettings(update: SettingsUpdate): Promise<void>;
+  saveSettings(update: SettingsUpdate): Promise<SaveResult>;
   testConnection(update: SettingsUpdate): Promise<ConnectionTestResult>;
   trustCertificate(fingerprint: string): Promise<void>;
   forgetCertificate(): Promise<void>;
+  /** Forgets the cached meetings and the server session, then loads everything again. Password and settings stay. */
+  clearCache(): Promise<void>;
   openLog(): Promise<void>;
   openSettings(): Promise<void>;
   closeWindow(): Promise<void>;
@@ -162,6 +175,8 @@ export interface OwaApi {
   getReminder(): Promise<ReminderPayload | null>;
   snoozeReminder(minutes: number): Promise<void>;
   onPopupShown(cb: () => void): () => void;
+  /** The main process asks the popup to show a meeting (a notification was clicked). */
+  onOpenEvent(cb: (eventId: string) => void): () => void;
   resizePopup(height: number): void;
 }
 
@@ -177,6 +192,7 @@ export const IPC = {
   testConnection: 'owa:testConnection',
   trustCertificate: 'owa:trustCertificate',
   forgetCertificate: 'owa:forgetCertificate',
+  clearCache: 'owa:clearCache',
   openLog: 'owa:openLog',
   openSettings: 'owa:openSettings',
   closeWindow: 'owa:closeWindow',
@@ -186,5 +202,6 @@ export const IPC = {
   getReminder: 'owa:getReminder',
   snoozeReminder: 'owa:snoozeReminder',
   popupShown: 'owa:popupShown',
+  openEvent: 'owa:openEvent',
   resizePopup: 'owa:resizePopup',
 } as const;

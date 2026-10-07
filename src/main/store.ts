@@ -3,8 +3,9 @@ import { app, safeStorage } from 'electron';
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AppSettings, CalendarEvent } from '../shared/types';
-import { checkServerUrl } from '../shared/serverUrl';
-import { readStoredPin, sanitizeSettings } from '../shared/validate';
+import { checkServerUrl, serverKey } from '../shared/serverUrl';
+import { openSecret, sealSecret } from '../shared/secret';
+import { readStoredPin, sanitizeEvents, sanitizeSettings } from '../shared/validate';
 import { log } from './log';
 import { DEFAULT_SETTINGS } from './store.defaults';
 
@@ -38,7 +39,7 @@ export function loadSettings(): AppSettings {
       log.warn(`settings: stored server address is not a server address, using the default instead`);
       clean.account.serverUrl = DEFAULT_SETTINGS.account.serverUrl;
     }
-    return { ...clean, account: { ...clean.account, ...readStoredPin(raw), hasPassword: !!loadPassword() } };
+    return { ...clean, account: { ...clean.account, ...readStoredPin(raw), hasPassword: !!loadPassword(serverKey(clean.account.serverUrl)) } };
   } catch {
     return { ...DEFAULT_SETTINGS, account: { ...DEFAULT_SETTINGS.account } };
   }
@@ -64,20 +65,33 @@ function decrypt(buf: Buffer): string | null {
   }
 }
 
-export function loadPassword(): string | undefined {
+/**
+ * The saved password, only for the server it was typed for (`server` is `host[:port]`, see
+ * serverKey). For any other server, or none, there is no password.
+ */
+export function loadPassword(server: string): string | undefined {
   const p = join(dir(), 'secret.bin');
-  if (!existsSync(p)) return undefined;
-  return decrypt(readFileSync(p)) ?? undefined;
+  if (!server || !existsSync(p)) return undefined;
+  const plain = decrypt(readFileSync(p));
+  if (plain === null) return undefined;
+  const opened = openSecret(plain, server);
+  if (opened.kind === 'ok') return opened.password;
+  if (opened.kind === 'legacy') {
+    // Saved by an older version: it was typed for the server that is configured now, so bind it to that one.
+    savePassword(opened.password, server);
+    return opened.password;
+  }
+  return undefined;
 }
 
 /** Returns whether the password is stored afterwards (false: cleared, or encryption unavailable). */
-export function savePassword(password: string | undefined): boolean {
+export function savePassword(password: string | undefined, server: string): boolean {
   const p = join(dir(), 'secret.bin');
-  if (!password) {
+  if (!password || !server) {
     rmSync(p, { force: true });
     return false;
   }
-  const enc = encrypt(password);
+  const enc = encrypt(sealSecret(password, server));
   // No OS encryption available → never write the password in the clear.
   if (!enc) return false;
   writeAtomic(p, enc);
@@ -91,7 +105,7 @@ export function loadEventCache(): CalendarEvent[] {
   const text = decrypt(readFileSync(p));
   if (!text) return [];
   try {
-    return JSON.parse(text) as CalendarEvent[];
+    return sanitizeEvents(JSON.parse(text));
   } catch {
     return [];
   }
@@ -100,4 +114,9 @@ export function loadEventCache(): CalendarEvent[] {
 export function saveEventCache(events: CalendarEvent[]) {
   const enc = encrypt(JSON.stringify(events));
   if (enc) writeAtomic(join(dir(), 'cache.bin'), enc);
+}
+
+/** Removes the saved meeting list from the disk (the "reset cache" button). */
+export function clearEventCache() {
+  rmSync(join(dir(), 'cache.bin'), { force: true });
 }

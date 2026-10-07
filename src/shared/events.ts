@@ -25,6 +25,14 @@ export function displayTitle(e: CalendarEvent): string {
   return trimmed;
 }
 
+/**
+ * A meeting the person has said yes to (or runs). A global hotkey opens a link without showing it
+ * first only for these: an invitation nobody answered may have been sent by anyone.
+ */
+export function isEngaged(e: CalendarEvent): boolean {
+  return e.responseType === 'accepted' || e.responseType === 'tentative' || e.responseType === 'organizer';
+}
+
 /** Link for Join / Copy; cancelled meetings hide actions even if a link remains. */
 export function joinUrlForActions(e: CalendarEvent): string | undefined {
   return isEffectivelyCancelled(e) ? undefined : e.joinUrl;
