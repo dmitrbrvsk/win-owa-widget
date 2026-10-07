@@ -731,6 +731,9 @@ svg.ico {
   outline: none;
   border-bottom: 2px solid var(--accent);
 }
+.field.bad {
+  border-bottom: 2px solid var(--danger);
+}
 select.field {
   width: 200px;
 }

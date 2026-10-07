@@ -4,6 +4,7 @@ import type { AppSettings, CalendarEvent, CertInfo, ConnectionTestResult, EventD
 import { describeError, log } from './log';
 import { OwaClient } from './owa/client';
 import { OwaError } from './owa/http';
+import { checkServerUrl, serverUrlError } from '../shared/serverUrl';
 import { sanitizeUpdate } from '../shared/validate';
 import { demoDetails, demoEvents } from './demo';
 import { loadEventCache, loadPassword, loadSettings, saveEventCache, savePassword, saveSettings } from './store';
@@ -167,6 +168,11 @@ export class CalendarService extends EventEmitter {
     // Whatever the renderer sent is rebuilt field by field: types, enums and ranges are enforced here.
     // The certificate pin and hasPassword are copied from the current state, never from the page.
     const clean = sanitizeUpdate(update, prev);
+    if (clean.settings.account.serverUrl) {
+      const check = checkServerUrl(clean.settings.account.serverUrl);
+      if (!check.ok) throw new Error(serverUrlError(check));
+      clean.settings.account.serverUrl = check.url.replace(/^https:\/\//, '');
+    }
     let hasPassword = prev.account.hasPassword;
     if (clean.password !== undefined) hasPassword = savePassword(clean.password || undefined) && !!clean.password;
     this.settings = { ...clean.settings, account: { ...clean.settings.account, hasPassword } };

@@ -109,14 +109,19 @@ describe('server address', () => {
   });
   it('refuses an e-mail address: the host after @ would be the public web site', async () => {
     const { parseBaseUrl } = await import('../src/main/owa/serverUrl');
+    const { checkServerUrl } = await import('../src/shared/serverUrl');
     expect(() => parseBaseUrl('ivanov@company.ru')).toThrow(/адрес почты/);
     expect(() => parseBaseUrl('https://user:pass@mail.company.ru')).toThrow(/адрес почты/);
+    expect(checkServerUrl('ivanov@company.ru')).toEqual({ ok: false, problem: 'email' });
   });
   it('refuses http and bare words', async () => {
     const { parseBaseUrl } = await import('../src/main/owa/serverUrl');
+    const { checkServerUrl } = await import('../src/shared/serverUrl');
     expect(() => parseBaseUrl('http://mail.company.ru')).toThrow(/https/);
     expect(() => parseBaseUrl('mail')).toThrow(/полное имя/);
     expect(() => parseBaseUrl('')).toThrow();
+    expect(checkServerUrl('mail')).toEqual({ ok: false, problem: 'bare', detail: 'mail' });
+    expect(checkServerUrl('')).toEqual({ ok: false, problem: 'empty' });
   });
 });
 

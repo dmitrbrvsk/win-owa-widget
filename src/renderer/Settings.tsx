@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { AppSettings, CertInfo, ConnectionTestResult, Snapshot } from '../shared/types';
 import { api } from './api';
 import { useI18n } from './hooks';
+import { checkServerUrl } from '../shared/serverUrl';
 
 function Switch({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
   return <button role="switch" aria-checked={checked} aria-label={label} className="switch" onClick={() => onChange(!checked)} />;
@@ -15,6 +16,8 @@ export function Settings({ snap }: { snap: Snapshot }) {
   const [test, setTest] = useState<ConnectionTestResult | null>(null);
   const [testing, setTesting] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [serverSaved, setServerSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const acc = s.account;
   // The pin lives in the main process; show the live value, not the form's copy.
@@ -22,6 +25,8 @@ export function Settings({ snap }: { snap: Snapshot }) {
   const setAcc = (patch: Partial<AppSettings['account']>) => setS({ ...s, account: { ...acc, ...patch } });
   const update = () => ({ settings: s, password: clearPassword ? '' : password ? password : undefined });
   const needsLogin = !acc.useWindowsAuth;
+  const server = checkServerUrl(acc.serverUrl);
+  const serverChanged = acc.serverUrl.trim() !== snap.settings.account.serverUrl;
 
   async function runTest() {
     setTesting(true);
@@ -38,27 +43,78 @@ export function Settings({ snap }: { snap: Snapshot }) {
     setTest(null);
   }
 
-  async function save() {
-    await api.saveSettings(update());
+  async function save(what: 'all' | 'server' = 'all') {
+    setSaveError(null);
+    try {
+      await api.saveSettings(update());
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : String(e));
+      return;
+    }
     setPassword('');
     setClearPassword(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    if (what === 'server') {
+      setServerSaved(true);
+      setTimeout(() => setServerSaved(false), 3000);
+    } else {
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    }
   }
 
   return (
     <div className="settings">
       <h1>{t.settingsTitle}</h1>
 
-      <h2>{t.account}</h2>
+      <h2>{t.server}</h2>
       <div className="card">
         <div className="setting-row">
           <div className="label">
             <div>{t.serverUrl}</div>
             <div className="hint">{t.serverHint}</div>
           </div>
-          <input className="field" value={acc.serverUrl} placeholder="mail.company.ru" spellCheck={false} onChange={(e) => setAcc({ serverUrl: e.target.value })} />
+          <input
+            className={`field${acc.serverUrl && !server.ok ? ' bad' : ''}`}
+            value={acc.serverUrl}
+            placeholder="mail.company.ru"
+            spellCheck={false}
+            autoFocus={!snap.settings.account.serverUrl}
+            onChange={(e) => setAcc({ serverUrl: e.target.value })}
+            onKeyDown={(e) => e.key === 'Enter' && server.ok && void save('server')}
+          />
         </div>
+        <div className="setting-row">
+          <div className="label">
+            {server.ok ? (
+              <div className="msg ok" role="status">
+                {t.serverWillUse(server.url)}
+              </div>
+            ) : acc.serverUrl ? (
+              <div className="msg bad" role="alert">
+                {t.serverProblem[server.problem]}
+              </div>
+            ) : (
+              <div className="hint">{t.serverProblem.empty}</div>
+            )}
+            {serverSaved && (
+              <div className="msg ok" role="status">
+                {t.serverSaved}
+              </div>
+            )}
+            {saveError && (
+              <div className="msg bad" role="alert">
+                {saveError}
+              </div>
+            )}
+          </div>
+          <button className="btn primary" disabled={!server.ok || !serverChanged} onClick={() => void save('server')}>
+            {t.saveServer}
+          </button>
+        </div>
+      </div>
+
+      <h2>{t.account}</h2>
+      <div className="card">
         <div className="setting-row">
           <div className="label">
             <div>{t.windowsAuth}</div>
@@ -117,7 +173,7 @@ export function Settings({ snap }: { snap: Snapshot }) {
             )}
             {!test && <div className="hint">{t.privacyNote}</div>}
           </div>
-          <button className="btn" disabled={testing || !acc.serverUrl} onClick={() => void runTest()}>
+          <button className="btn" disabled={testing || !server.ok} onClick={() => void runTest()}>
             {testing ? t.testing : t.testConnection}
           </button>
         </div>
