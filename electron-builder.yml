@@ -1,0 +1,26 @@
+appId: com.dmitrbrvsk.owawidget
+productName: OWA Widget
+copyright: Copyright © 2026 Dmitry Borovskiy
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**/*
+  - package.json
+  - "!**/*.map"
+win:
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+    - target: portable
+      arch: [x64]
+  icon: build/icon.ico
+  artifactName: OWA-Widget-${version}-${arch}.${ext}
+nsis:
+  oneClick: true
+  perMachine: false
+  createDesktopShortcut: false
+  createStartMenuShortcut: true
+  shortcutName: OWA Widget
+portable:
+  artifactName: OWA-Widget-${version}-portable.${ext}
