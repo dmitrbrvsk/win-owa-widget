@@ -121,3 +121,23 @@ describe('tray status', () => {
     expect(trayPresentation([], NOW).kind).toBe('nothing');
   });
 });
+
+describe('visible range of the day timeline', () => {
+  const blk = (startMin: number, endMin: number) => ({ event: {} as never, startMin, endMin, lane: 0, lanes: 1 });
+  it('is the working day when everything fits', async () => {
+    const { visibleRange } = await import('../src/shared/timeline');
+    expect(visibleRange([blk(9 * 60, 10 * 60)], { startHour: 8, endHour: 20 })).toEqual({ startMin: 480, endMin: 1200 });
+    expect(visibleRange([], { startHour: 8, endHour: 20 })).toEqual({ startMin: 480, endMin: 1200 });
+  });
+  it('widens to whole hours around meetings outside it', async () => {
+    const { visibleRange } = await import('../src/shared/timeline');
+    expect(visibleRange([blk(7 * 60 + 30, 8 * 60)], { startHour: 8, endHour: 20 })).toEqual({ startMin: 420, endMin: 1200 });
+    expect(visibleRange([blk(21 * 60, 22 * 60 + 15)], { startHour: 8, endHour: 20 })).toEqual({ startMin: 480, endMin: 1380 });
+  });
+  it('keeps the now line in view and never leaves the day', async () => {
+    const { visibleRange } = await import('../src/shared/timeline');
+    expect(visibleRange([], { startHour: 8, endHour: 20 }, 23 * 60 + 40)).toEqual({ startMin: 480, endMin: 1440 });
+    expect(visibleRange([], { startHour: 8, endHour: 20 }, 6 * 60 + 5)).toEqual({ startMin: 360, endMin: 1200 });
+    expect(visibleRange([blk(23 * 60, 1440)], { startHour: 0, endHour: 24 })).toEqual({ startMin: 0, endMin: 1440 });
+  });
+});

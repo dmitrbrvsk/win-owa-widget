@@ -94,6 +94,9 @@ export interface AppSettings {
   syncIntervalMinutes: number;
   /** Minutes before start to show the reminder; -1 disables reminders. */
   reminderMinutes: number;
+  /** Hours the day timeline shows by default (meetings outside them widen the view). 0–23 and 1–24. */
+  workdayStartHour: number;
+  workdayEndHour: number;
   launchAtLogin: boolean;
   theme: ThemePref;
   language: LanguagePref;

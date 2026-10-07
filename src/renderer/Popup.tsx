@@ -140,7 +140,16 @@ export function Popup({ snap }: { snap: Snapshot }) {
           </div>
         )}
 
-        <Timeline events={dayEvents} day={day} now={now} t={t} lang={lang} onOpen={setOpen} onJoin={join} />
+        <Timeline
+          events={dayEvents}
+          day={day}
+          now={now}
+          workday={{ startHour: snap.settings.workdayStartHour, endHour: snap.settings.workdayEndHour }}
+          t={t}
+          lang={lang}
+          onOpen={setOpen}
+          onJoin={join}
+        />
 
         <div className={`foot${sync.phase === 'error' ? ' err' : ''}`}>
           {sync.phase === 'syncing' && (

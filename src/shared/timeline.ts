@@ -10,6 +10,29 @@ export interface TimelineBlock {
   lanes: number;
 }
 
+export interface Workday {
+  startHour: number;
+  endHour: number;
+}
+
+/**
+ * Hours the timeline draws: the working day, widened to whole hours so that every meeting of the
+ * day (and the "now" line, when the day is today) stays in view.
+ */
+export function visibleRange(blocks: TimelineBlock[], workday: Workday, nowMin?: number): { startMin: number; endMin: number } {
+  let startMin = Math.max(0, Math.min(23, workday.startHour)) * 60;
+  let endMin = Math.max(startMin + 60, Math.min(24, workday.endHour) * 60);
+  for (const b of blocks) {
+    startMin = Math.min(startMin, Math.floor(b.startMin / 60) * 60);
+    endMin = Math.max(endMin, Math.ceil(Math.max(b.endMin, b.startMin + 1) / 60) * 60);
+  }
+  if (nowMin !== undefined) {
+    startMin = Math.min(startMin, Math.floor(nowMin / 60) * 60);
+    endMin = Math.max(endMin, Math.min(1440, Math.ceil((nowMin + 1) / 60) * 60));
+  }
+  return { startMin, endMin: Math.min(1440, endMin) };
+}
+
 export function layoutDay(events: CalendarEvent[], day: Date): TimelineBlock[] {
   const dayStart = new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime();
   const dayEnd = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1).getTime();

@@ -43,6 +43,7 @@ export function sanitizeSettings(raw: unknown, base: AppSettings): AppSettings {
     // A 1 ms or NaN interval would hammer the server and lock the domain account.
     syncIntervalMinutes: intIn(r.syncIntervalMinutes, 1, 24 * 60, base.syncIntervalMinutes),
     reminderMinutes: intIn(r.reminderMinutes, -1, 60, base.reminderMinutes),
+    ...workday(r, base),
     launchAtLogin: bool(r.launchAtLogin, base.launchAtLogin),
     theme: oneOf(r.theme, THEMES, base.theme),
     language: oneOf(r.language, LANGS, base.language),
@@ -56,6 +57,13 @@ export function readStoredPin(raw: unknown): Pick<AppSettings['account'], 'trust
   const a = isObj(raw) && isObj(raw.account) ? raw.account : {};
   const host = text(a.trustedCertHost, 255).trim().toLowerCase();
   return isFingerprint(a.trustedCertFingerprint) && host ? { trustedCertFingerprint: a.trustedCertFingerprint, trustedCertHost: host } : {};
+}
+
+/** Start before end, both on the hour; anything else falls back to the current values. */
+function workday(r: Record<string, unknown>, base: AppSettings): Pick<AppSettings, 'workdayStartHour' | 'workdayEndHour'> {
+  const start = intIn(r.workdayStartHour, 0, 23, base.workdayStartHour);
+  const end = intIn(r.workdayEndHour, 1, 24, base.workdayEndHour);
+  return start < end ? { workdayStartHour: start, workdayEndHour: end } : { workdayStartHour: base.workdayStartHour, workdayEndHour: base.workdayEndHour };
 }
 
 export function sanitizeUpdate(raw: unknown, base: AppSettings): SettingsUpdate {

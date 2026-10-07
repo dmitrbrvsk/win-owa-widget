@@ -1,7 +1,7 @@
 {
   "name": "win-owa-widget",
   "productName": "OWA Widget",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Exchange / OWA meetings in the Windows tray: timeline, one-click join, reminders, RSVP",
   "author": "Dmitry Borovskiy",
   "license": "MIT",

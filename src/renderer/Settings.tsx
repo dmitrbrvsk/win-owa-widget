@@ -219,6 +219,46 @@ export function Settings({ snap }: { snap: Snapshot }) {
           </select>
         </div>
         <div className="setting-row">
+          <div className="label">
+            <div>{t.workday}</div>
+            <div className="hint">{t.workdayHint}</div>
+          </div>
+          <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+            <span className="hint">{t.workdayFrom}</span>
+            <select
+              className="field"
+              style={{ width: 92 }}
+              value={s.workdayStartHour}
+              onChange={(e) => {
+                const start = Number(e.target.value);
+                setS({ ...s, workdayStartHour: start, workdayEndHour: Math.max(s.workdayEndHour, start + 1) });
+              }}
+            >
+              {Array.from({ length: 24 }, (_, h) => (
+                <option key={h} value={h}>
+                  {String(h).padStart(2, '0')}:00
+                </option>
+              ))}
+            </select>
+            <span className="hint">{t.workdayTo}</span>
+            <select
+              className="field"
+              style={{ width: 92 }}
+              value={s.workdayEndHour}
+              onChange={(e) => {
+                const end = Number(e.target.value);
+                setS({ ...s, workdayEndHour: end, workdayStartHour: Math.min(s.workdayStartHour, end - 1) });
+              }}
+            >
+              {Array.from({ length: 24 }, (_, i) => i + 1).map((h) => (
+                <option key={h} value={h}>
+                  {String(h % 24).padStart(2, '0')}:00
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div className="setting-row">
           <div className="label">{t.joinHotkey}</div>
           <Switch checked={s.joinHotkeyEnabled} onChange={(v) => setS({ ...s, joinHotkeyEnabled: v })} label={t.joinHotkey} />
         </div>

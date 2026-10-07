@@ -6,6 +6,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   account: { serverUrl: 'owa.alfabank.ru', useWindowsAuth: true, username: '', hasPassword: false },
   syncIntervalMinutes: 5,
   reminderMinutes: 1,
+  workdayStartHour: 8,
+  workdayEndHour: 20,
   launchAtLogin: true,
   theme: 'system',
   language: 'system',

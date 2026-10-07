@@ -171,3 +171,14 @@ describe('where the password may be posted', () => {
     expect(owaLoginForm('<h1>Not found</h1>', PAGE, BASE)).toBeNull();
   });
 });
+
+describe('working hours setting', () => {
+  it('keeps start before end and within the day', async () => {
+    const { sanitizeSettings } = await import('../src/shared/validate');
+    const ok = sanitizeSettings({ workdayStartHour: 9, workdayEndHour: 18 }, DEFAULT_SETTINGS);
+    expect([ok.workdayStartHour, ok.workdayEndHour]).toEqual([9, 18]);
+    const bad = sanitizeSettings({ workdayStartHour: 20, workdayEndHour: 8 }, DEFAULT_SETTINGS);
+    expect([bad.workdayStartHour, bad.workdayEndHour]).toEqual([DEFAULT_SETTINGS.workdayStartHour, DEFAULT_SETTINGS.workdayEndHour]);
+    expect(sanitizeSettings({ workdayStartHour: -3, workdayEndHour: 99 }, DEFAULT_SETTINGS).workdayEndHour).toBe(24);
+  });
+});

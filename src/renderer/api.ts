@@ -15,6 +15,8 @@ function mockApi(): OwaApi {
     account: { serverUrl: 'mail.example.ru', useWindowsAuth: true, username: '', hasPassword: false },
     syncIntervalMinutes: 5,
     reminderMinutes: 1,
+    workdayStartHour: 8,
+    workdayEndHour: 20,
     launchAtLogin: true,
     theme: (params.get('theme') as AppSettings['theme']) ?? 'system',
     language: (params.get('lang') as AppSettings['language']) ?? 'ru',
@@ -26,7 +28,7 @@ function mockApi(): OwaApi {
     sync: { phase: 'ok', lastSuccess: new Date().toISOString() },
     settings,
     demo: true,
-    version: '0.1.6',
+    version: '0.1.7',
     taskbarLight: false,
     logPath: 'C:\\Users\\you\\AppData\\Roaming\\OWA Widget\\logs\\owa-widget.log',
   };
