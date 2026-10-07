@@ -1,0 +1,130 @@
+name: Build
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+# Read-only by default. Only the release job below is allowed to write.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - run: npm run typecheck
+      - run: TZ=Europe/Moscow npm test
+      # Fails the build when a dependency that ends up in the app has a known vulnerability.
+      - run: npm audit --omit=dev --audit-level=moderate
+
+  # Builds the installers. Runs third-party install scripts, so it gets no token that can write.
+  windows:
+    needs: test
+    runs-on: windows-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run dist
+      # Opens the popup and the settings window from source on a real Windows desktop and fails if
+      # either page did not render (the IPC sender check compares file paths, which differ per OS).
+      - name: Smoke test both windows on Windows
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force smoke | Out-Null
+          $env:OWA_DEMO = '1'
+          $env:OWA_SMOKE_SHOT = (Resolve-Path smoke).Path + '\popup.png'
+          npx electron . 2>&1 | Tee-Object -Variable out
+          if ($out -notmatch 'SMOKE ok') { Write-Error "smoke failed: $out"; exit 1 }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: smoke-screenshots
+          path: smoke/*.png
+      - name: Read version
+        id: v
+        shell: bash
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+      - name: Checksums
+        shell: bash
+        working-directory: release
+        run: sha256sum *.exe > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: OWA-Widget-windows
+          path: |
+            release/*.exe
+            release/SHA256SUMS.txt
+
+  # Publishes a release when master carries a version that has none yet. It builds nothing and
+  # runs no project code: it only takes the finished files from the job above.
+  release:
+    needs: windows
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the release and its tag
+      id-token: write # sign the build provenance
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: OWA-Widget-windows
+          path: release
+      - name: Does the release exist already?
+        id: rel
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.windows.outputs.version }}
+        run: |
+          if gh release view "v${VERSION}" >/dev/null 2>&1; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
+      - name: Verify the checksums
+        if: steps.rel.outputs.exists == 'false'
+        working-directory: release
+        run: sha256sum --check SHA256SUMS.txt
+      # Lets anyone check that an .exe was built from this repository by this workflow:
+      #   gh attestation verify OWA-Widget-Setup-<version>.exe --repo dmitrbrvsk/win-owa-widget
+      - name: Attest build provenance
+        if: steps.rel.outputs.exists == 'false'
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: release/*.exe
+      - name: Publish release
+        if: steps.rel.outputs.exists == 'false'
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          tag_name: v${{ needs.windows.outputs.version }}
+          target_commitish: ${{ github.sha }} # the tag points at the commit that was built, not at the default branch
+          name: OWA Widget ${{ needs.windows.outputs.version }}
+          generate_release_notes: true
+          body: |
+            ## Установка
+            - **OWA-Widget-Setup-${{ needs.windows.outputs.version }}.exe** — установщик (Windows 10/11, x64 и ARM64). Ставится для текущего пользователя, права администратора не нужны.
+            - **OWA-Widget-${{ needs.windows.outputs.version }}-portable.exe** — без установки, запускается из любой папки.
+
+            ## Как проверить, что файл настоящий
+            Установщик пока не подписан сертификатом Windows, поэтому SmartScreen может показать «Windows защитила ваш компьютер». Прежде чем нажимать «Выполнить в любом случае», сверьте файл:
+            - **Контрольная сумма.** В PowerShell: `Get-FileHash .\OWA-Widget-Setup-${{ needs.windows.outputs.version }}.exe -Algorithm SHA256` — результат должен совпасть со строкой в `SHA256SUMS.txt` из этого релиза.
+            - **Происхождение сборки.** `gh attestation verify .\OWA-Widget-Setup-${{ needs.windows.outputs.version }}.exe --repo dmitrbrvsk/win-owa-widget` подтверждает, что файл собран из этого репозитория workflow'ом GitHub Actions.
+          files: |
+            release/*.exe
+            release/SHA256SUMS.txt

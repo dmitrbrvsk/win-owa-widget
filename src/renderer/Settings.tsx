@@ -1,0 +1,241 @@
+import { useState } from 'react';
+import type { AppSettings, CertInfo, ConnectionTestResult, Snapshot } from '../shared/types';
+import { api } from './api';
+import { useI18n } from './hooks';
+
+function Switch({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
+  return <button role="switch" aria-checked={checked} aria-label={label} className="switch" onClick={() => onChange(!checked)} />;
+}
+
+export function Settings({ snap }: { snap: Snapshot }) {
+  const { t } = useI18n(snap);
+  const [s, setS] = useState<AppSettings>(snap.settings);
+  const [password, setPassword] = useState('');
+  const [clearPassword, setClearPassword] = useState(false);
+  const [test, setTest] = useState<ConnectionTestResult | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const acc = s.account;
+  // The pin lives in the main process; show the live value, not the form's copy.
+  const pinned = snap.settings.account;
+  const setAcc = (patch: Partial<AppSettings['account']>) => setS({ ...s, account: { ...acc, ...patch } });
+  const update = () => ({ settings: s, password: clearPassword ? '' : password ? password : undefined });
+  const needsLogin = !acc.useWindowsAuth;
+
+  async function runTest() {
+    setTesting(true);
+    setTest(null);
+    try {
+      setTest(await api.testConnection(update()));
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  async function trust(cert: CertInfo) {
+    await api.trustCertificate(cert.fingerprint);
+    setTest(null);
+  }
+
+  async function save() {
+    await api.saveSettings(update());
+    setPassword('');
+    setClearPassword(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  }
+
+  return (
+    <div className="settings">
+      <h1>{t.settingsTitle}</h1>
+
+      <h2>{t.account}</h2>
+      <div className="card">
+        <div className="setting-row">
+          <div className="label">
+            <div>{t.serverUrl}</div>
+            <div className="hint">{t.serverHint}</div>
+          </div>
+          <input className="field" value={acc.serverUrl} placeholder="mail.company.ru" spellCheck={false} onChange={(e) => setAcc({ serverUrl: e.target.value })} />
+        </div>
+        <div className="setting-row">
+          <div className="label">
+            <div>{t.windowsAuth}</div>
+            <div className="hint">{t.windowsAuthHint}</div>
+          </div>
+          <Switch checked={acc.useWindowsAuth} onChange={(v) => setAcc({ useWindowsAuth: v })} label={t.windowsAuth} />
+        </div>
+        <div className="setting-row">
+          <div className="label">
+            <div>{t.username}</div>
+            <div className="hint">{t.usernameHint}</div>
+          </div>
+          <input className="field" value={acc.username} spellCheck={false} autoComplete="username" onChange={(e) => setAcc({ username: e.target.value })} />
+        </div>
+        <div className="setting-row">
+          <div className="label">
+            <div>{t.password}</div>
+            {acc.hasPassword && !clearPassword && <div className="hint">{t.passwordStored}</div>}
+          </div>
+          <div className="col" style={{ gap: 4, alignItems: 'flex-end' }}>
+            <input
+              className="field"
+              type="password"
+              value={password}
+              autoComplete="current-password"
+              placeholder={acc.hasPassword && !clearPassword ? '••••••••' : ''}
+              onChange={(e) => (setPassword(e.target.value), setClearPassword(false))}
+            />
+            {acc.hasPassword && !clearPassword && (
+              <button className="btn compact" onClick={() => (setClearPassword(true), setPassword(''))}>
+                {t.passwordClear}
+              </button>
+            )}
+          </div>
+        </div>
+        {needsLogin && !acc.username && <div className="setting-row hint">{t.usernameHint}</div>}
+        {pinned.trustedCertFingerprint && (
+          <div className="setting-row">
+            <div className="label">
+              <div>{t.certificate}</div>
+              <div className="hint nowrap" style={{ maxWidth: 360 }} title={pinned.trustedCertFingerprint}>
+                {t.trustedCert} ({pinned.trustedCertHost}): {pinned.trustedCertFingerprint}
+              </div>
+            </div>
+            <button className="btn compact" onClick={() => void api.forgetCertificate()}>
+              {t.forgetCert}
+            </button>
+          </div>
+        )}
+        <div className="setting-row">
+          <div className="label">
+            {test && (
+              <div className={`msg ${test.ok ? 'ok' : 'bad'}`} role="status">
+                {test.message}
+              </div>
+            )}
+            {!test && <div className="hint">{t.privacyNote}</div>}
+          </div>
+          <button className="btn" disabled={testing || !acc.serverUrl} onClick={() => void runTest()}>
+            {testing ? t.testing : t.testConnection}
+          </button>
+        </div>
+        {test?.untrustedCert && (
+          <div className="setting-row">
+            <div className="label">
+              <div className="hint">
+                {t.certIssuer}: {test.untrustedCert.issuer}
+                <br />
+                {t.certFor}: {test.untrustedCert.subject}
+                <br />
+                {t.certValidTo}: {new Date(test.untrustedCert.validTo).toLocaleDateString()}
+                <br />
+                <span className="nowrap" title={test.untrustedCert.fingerprint}>
+                  {test.untrustedCert.fingerprint}
+                </span>
+              </div>
+              <div className="hint" style={{ marginTop: 6 }}>
+                {t.certHint}
+              </div>
+            </div>
+            <button className="btn" onClick={() => void trust(test.untrustedCert!)}>
+              {t.trustCert}
+            </button>
+          </div>
+        )}
+      </div>
+
+      <h2>{t.behaviour}</h2>
+      <div className="card">
+        <div className="setting-row">
+          <div className="label">{t.reminderLead}</div>
+          <select className="field" value={s.reminderMinutes} onChange={(e) => setS({ ...s, reminderMinutes: Number(e.target.value) })}>
+            <option value={-1}>{t.reminderOff}</option>
+            <option value={0}>{t.reminderAtStart}</option>
+            {[1, 2, 5, 10].map((m) => (
+              <option key={m} value={m}>
+                {t.reminderBefore(m)}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="setting-row">
+          <div className="label">{t.syncEvery}</div>
+          <select className="field" value={s.syncIntervalMinutes} onChange={(e) => setS({ ...s, syncIntervalMinutes: Number(e.target.value) })}>
+            {[2, 5, 10, 15, 30].map((m) => (
+              <option key={m} value={m}>
+                {t.everyMin(m)}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="setting-row">
+          <div className="label">{t.joinHotkey}</div>
+          <Switch checked={s.joinHotkeyEnabled} onChange={(v) => setS({ ...s, joinHotkeyEnabled: v })} label={t.joinHotkey} />
+        </div>
+        <div className="setting-row">
+          <div className="label">{t.launchAtLogin}</div>
+          <Switch checked={s.launchAtLogin} onChange={(v) => setS({ ...s, launchAtLogin: v })} label={t.launchAtLogin} />
+        </div>
+      </div>
+
+      <h2>{t.appearance}</h2>
+      <div className="card">
+        <div className="setting-row">
+          <div className="label">{t.theme}</div>
+          <select className="field" value={s.theme} onChange={(e) => setS({ ...s, theme: e.target.value as AppSettings['theme'] })}>
+            <option value="system">{t.themeSystem}</option>
+            <option value="light">{t.themeLight}</option>
+            <option value="dark">{t.themeDark}</option>
+          </select>
+        </div>
+        <div className="setting-row">
+          <div className="label">{t.language}</div>
+          <select className="field" value={s.language} onChange={(e) => setS({ ...s, language: e.target.value as AppSettings['language'] })}>
+            <option value="system">{t.languageSystem}</option>
+            <option value="ru">Русский</option>
+            <option value="en">English</option>
+          </select>
+        </div>
+        <div className="setting-row">
+          <div className="label">{t.popupSize}</div>
+          <select className="field" value={s.popupSize} onChange={(e) => setS({ ...s, popupSize: e.target.value as AppSettings['popupSize'] })}>
+            <option value="compact">{t.sizeCompact}</option>
+            <option value="regular">{t.sizeRegular}</option>
+            <option value="large">{t.sizeLarge}</option>
+          </select>
+        </div>
+      </div>
+
+      <h2>{t.diagnostics}</h2>
+      <div className="card">
+        <div className="setting-row">
+          <div className="label">
+            <div className="hint">{t.logHint}</div>
+            <div className="hint nowrap" style={{ maxWidth: 420 }} title={snap.logPath}>
+              {snap.logPath}
+            </div>
+          </div>
+          <button className="btn compact" onClick={() => void api.openLog()}>
+            {t.openLog}
+          </button>
+        </div>
+      </div>
+
+      <div className="settings-foot">
+        <button className="btn primary" onClick={() => void save()}>
+          {t.save}
+        </button>
+        <button className="btn" onClick={() => void api.closeWindow()}>
+          {t.close}
+        </button>
+        {saved && (
+          <span className="msg ok" role="status">
+            {t.saved}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
