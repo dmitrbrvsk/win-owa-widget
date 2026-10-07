@@ -34,6 +34,11 @@ const JOIN_HOTKEY = 'Control+Alt+J';
 
 app.setAppUserModelId('com.dmitrbrvsk.owawidget');
 
+// A tray widget has nothing for a GPU to do: software rendering inside the browser process drops
+// a whole Chromium process (and its memory) and sidesteps driver glitches on corporate laptops.
+app.disableHardwareAcceleration();
+app.commandLine.appendSwitch('in-process-gpu');
+
 const VERSION = app.getVersion();
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -437,6 +442,9 @@ void app.whenReady().then(async () => {
         await new Promise((r) => setTimeout(r, 2500));
         writeFileSync(out.replace(/\.png$/i, '') + '-settings.png', (await settingsWin!.webContents.capturePage()).toPNG());
         const settingsOk = await settingsWin!.webContents.executeJavaScript('!!document.querySelector(".settings")');
+        const metrics = app.getAppMetrics().map((m) => `${m.type}${m.name ? `(${m.name})` : ''}=${Math.round(m.memory.workingSetSize / 1024)}MB`);
+        const total = Math.round(app.getAppMetrics().reduce((a, m) => a + m.memory.workingSetSize, 0) / 1024);
+        console.log(`SMOKE memory total=${total}MB ${metrics.join(' ')}`);
         console.log(`SMOKE ${popupOk && settingsOk ? 'ok' : 'FAIL'} popup=${popupOk} settings=${settingsOk} tray-tooltip="${lastTooltip.replace(/\n/g, ' | ')}" events=${service.events.length}`);
         app.exit(popupOk && settingsOk ? 0 : 1);
       } catch (e) {

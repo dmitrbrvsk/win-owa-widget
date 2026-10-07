@@ -28,7 +28,7 @@ function mockApi(): OwaApi {
     sync: { phase: 'ok', lastSuccess: new Date().toISOString() },
     settings,
     demo: true,
-    version: '0.1.7',
+    version: '0.1.8',
     taskbarLight: false,
     logPath: 'C:\\Users\\you\\AppData\\Roaming\\OWA Widget\\logs\\owa-widget.log',
   };

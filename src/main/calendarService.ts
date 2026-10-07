@@ -82,6 +82,7 @@ export class CalendarService extends EventEmitter {
       const password = loadPassword();
       this.client = new OwaClient({
         serverUrl: a.serverUrl,
+        partition: 'owa',
         // No login or no password → the signed-in Windows account; both present → they are used instead.
         useWindowsAuth: !(a.username && password),
         username: a.username || undefined,
@@ -206,6 +207,7 @@ export class CalendarService extends EventEmitter {
       const password = clean.password !== undefined ? clean.password || undefined : loadPassword();
       client = new OwaClient({
         serverUrl: a.serverUrl,
+        partition: 'owa-test',
         useWindowsAuth: !(a.username && password),
         username: a.username || undefined,
         password,

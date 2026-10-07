@@ -35,6 +35,8 @@ import { windowsTimezoneId } from './timezone';
 
 export interface OwaClientOptions {
   serverUrl: string;
+  /** In-memory session partition; reused between clients so that rebuilding one does not grow memory. */
+  partition?: string;
   useWindowsAuth: boolean;
   username?: string;
   password?: string;
@@ -59,8 +61,10 @@ export class OwaClient {
   constructor(private readonly opts: OwaClientOptions) {
     this.base = parseBaseUrl(opts.serverUrl);
     this.host = new URL(this.base).hostname;
-    // In-memory partition (no "persist:" prefix): cookies live only as long as the app runs.
-    this.ses = electronSession.fromPartition(`owa-${randomUUID()}`, { cache: false });
+    // In-memory partition (no "persist:" prefix): cookies live only as long as the app runs. The
+    // partition is reused, so a new client starts by clearing whatever the previous one left.
+    this.ses = electronSession.fromPartition(opts.partition ?? 'owa', { cache: false });
+    void this.ses.clearStorageData();
     this.ses.setUserAgent(USER_AGENT, 'ru-RU,ru,en-US,en');
     configureSession(this.ses, this.host, { useWindowsAuth: opts.useWindowsAuth, trustedFingerprint: opts.trustedFingerprint }, this.cert);
   }
