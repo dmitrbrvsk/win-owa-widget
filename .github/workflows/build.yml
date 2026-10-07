@@ -54,7 +54,7 @@ jobs:
           $env:OWA_SMOKE_SHOT = (Resolve-Path smoke).Path + '\popup.png'
           npx electron . 2>&1 | Tee-Object -Variable out
           if ($out -notmatch 'SMOKE ok') { Write-Error "smoke failed: $out"; exit 1 }
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: smoke-screenshots
@@ -67,7 +67,7 @@ jobs:
         shell: bash
         working-directory: release
         run: sha256sum *.exe > SHA256SUMS.txt && cat SHA256SUMS.txt
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: OWA-Widget-windows
           path: |
