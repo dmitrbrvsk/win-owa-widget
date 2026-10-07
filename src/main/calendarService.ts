@@ -79,11 +79,13 @@ export class CalendarService extends EventEmitter {
     const a = this.settings.account;
     if (this.demo || !a.serverUrl) return;
     try {
+      const password = loadPassword();
       this.client = new OwaClient({
         serverUrl: a.serverUrl,
-        useWindowsAuth: a.useWindowsAuth,
+        // No login or no password → the signed-in Windows account; both present → they are used instead.
+        useWindowsAuth: !(a.username && password),
         username: a.username || undefined,
-        password: loadPassword(),
+        password,
         trustedFingerprint: pinFor(a, hostOf(a.serverUrl)),
       });
     } catch (e) {
@@ -175,7 +177,8 @@ export class CalendarService extends EventEmitter {
     }
     let hasPassword = prev.account.hasPassword;
     if (clean.password !== undefined) hasPassword = savePassword(clean.password || undefined) && !!clean.password;
-    this.settings = { ...clean.settings, account: { ...clean.settings.account, hasPassword } };
+    const account = clean.settings.account;
+    this.settings = { ...clean.settings, account: { ...account, hasPassword, useWindowsAuth: !(account.username && hasPassword) } };
     saveSettings(this.settings);
 
     const accountChanged =
@@ -200,11 +203,12 @@ export class CalendarService extends EventEmitter {
     const a = clean.settings.account;
     let client: OwaClient | undefined;
     try {
+      const password = clean.password !== undefined ? clean.password || undefined : loadPassword();
       client = new OwaClient({
         serverUrl: a.serverUrl,
-        useWindowsAuth: a.useWindowsAuth,
+        useWindowsAuth: !(a.username && password),
         username: a.username || undefined,
-        password: clean.password !== undefined ? clean.password || undefined : loadPassword(),
+        password,
         trustedFingerprint: pinFor(this.settings.account, hostOf(a.serverUrl)),
       });
       log.info(`test: connecting to ${client.host}`);

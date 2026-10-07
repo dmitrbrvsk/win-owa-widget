@@ -33,7 +33,7 @@ export function sanitizeSettings(raw: unknown, base: AppSettings): AppSettings {
   return {
     account: {
       serverUrl: text(a.serverUrl, 255).trim(),
-      useWindowsAuth: bool(a.useWindowsAuth, base.account.useWindowsAuth),
+      useWindowsAuth: true, // recomputed by the main process from login + password
       username: text(a.username, 256).trim(),
       // Decided by the main process, never by the renderer.
       hasPassword: base.account.hasPassword,

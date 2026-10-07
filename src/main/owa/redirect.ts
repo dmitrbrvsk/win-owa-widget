@@ -10,7 +10,7 @@ export function redirectRefusal(target: string, host: string): string | null {
   }
   if (u.protocol !== 'https:') return 'Сервер перенаправляет на незащищённое соединение (http)';
   if (u.hostname.toLowerCase() !== host.toLowerCase()) {
-    return `Сервер перенаправляет вход на ${u.hostname}. Вход через другой портал (единый вход, SSO) пока не поддерживается — попробуйте «Входить под учётной записью Windows»`;
+    return `Сервер перенаправляет вход на ${u.hostname}. Вход через другой портал (единый вход, SSO) пока не поддерживается — попробуйте оставить логин и пароль пустыми (вход под учётной записью Windows)`;
   }
   return null;
 }

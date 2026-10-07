@@ -75,7 +75,7 @@ export type PopupSize = 'compact' | 'regular' | 'large';
 
 export interface AccountSettings {
   serverUrl: string;
-  /** Use the signed-in Windows account (Kerberos/NTLM SSO). */
+  /** Derived, never chosen: the signed-in Windows account (Kerberos/NTLM SSO) is used when no login and password are stored. */
   useWindowsAuth: boolean;
   /** DOMAIN\login or login@domain; used for forms login and explicit NTLM. */
   username: string;

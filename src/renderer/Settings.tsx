@@ -24,7 +24,6 @@ export function Settings({ snap }: { snap: Snapshot }) {
   const pinned = snap.settings.account;
   const setAcc = (patch: Partial<AppSettings['account']>) => setS({ ...s, account: { ...acc, ...patch } });
   const update = () => ({ settings: s, password: clearPassword ? '' : password ? password : undefined });
-  const needsLogin = !acc.useWindowsAuth;
   const server = checkServerUrl(acc.serverUrl);
   const serverChanged = acc.serverUrl.trim() !== snap.settings.account.serverUrl;
 
@@ -117,15 +116,9 @@ export function Settings({ snap }: { snap: Snapshot }) {
       <div className="card">
         <div className="setting-row">
           <div className="label">
-            <div>{t.windowsAuth}</div>
-            <div className="hint">{t.windowsAuthHint}</div>
-          </div>
-          <Switch checked={acc.useWindowsAuth} onChange={(v) => setAcc({ useWindowsAuth: v })} label={t.windowsAuth} />
-        </div>
-        <div className="setting-row">
-          <div className="label">
             <div>{t.username}</div>
             <div className="hint">{t.usernameHint}</div>
+            <div className="hint">{t.credentialsHint}</div>
           </div>
           <input className="field" value={acc.username} spellCheck={false} autoComplete="username" onChange={(e) => setAcc({ username: e.target.value })} />
         </div>
@@ -150,7 +143,6 @@ export function Settings({ snap }: { snap: Snapshot }) {
             )}
           </div>
         </div>
-        {needsLogin && !acc.username && <div className="setting-row hint">{t.usernameHint}</div>}
         {pinned.trustedCertFingerprint && (
           <div className="setting-row">
             <div className="label">
