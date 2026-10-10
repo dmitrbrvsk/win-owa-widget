@@ -1,0 +1,6 @@
+# Native ARM64 build: the same app and the same hardening as electron-builder.yml, packed as its own
+# installer, so the x64 installer does not carry a second copy of Electron. Run as
+# `electron-builder --win nsis --arm64 --config electron-builder.arm64.yml`.
+extends: electron-builder.yml
+nsis:
+  artifactName: OWA-Widget-Setup-${version}-arm64.${ext}
