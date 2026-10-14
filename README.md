@@ -101,6 +101,12 @@ OWA Widget живет в области уведомлений и дает бы�
 - **[Сообщить о проблеме](https://github.com/dmitrbrvsk/win-owa-widget/issues)** — приложите версию приложения и описание проблемы; не публикуйте пароли и данные встреч.
 - **[Все релизы](https://github.com/dmitrbrvsk/win-owa-widget/releases)** — установщики, portable-архивы и контрольные суммы.
 
+## Благодарности
+
+Спасибо [@ilyabazhenov](https://github.com/ilyabazhenov), автору [mac-owa-widget](https://github.com/ilyabazhenov/mac-owa-widget), за идею и вдохновение!
+
+Его виджет календаря Exchange для macOS стал отправной точкой этого проекта. Идея быстрого доступа к встречам из строки меню легла в основу аналога для Windows. Windows-версия написана заново на Electron, React и TypeScript.
+
 ## Для разработчиков
 
 Electron + React + TypeScript. Главный процесс отвечает за Exchange, хранение данных, трей и окна; интерфейс получает данные через preload/IPC. Общая логика календаря отделена от Electron.
@@ -114,5 +120,3 @@ npm run build
 ```
 
 `npm run dev` запускает приложение с настоящим аккаунтом, `npm run dist` собирает установщики Windows и portable-архив. Для каждой версии нужен отдельный [текст изменений](docs/releases/README.md). Подробности: [устройство проекта и выпуск](docs/GUIDE.md#для-разработчиков), [ручные тест-кейсы](docs/TEST-CASES.md).
-
-Идея проекта — [mac-owa-widget](https://github.com/ilyabazhenov/mac-owa-widget); Windows-версия написана заново на Electron, React и TypeScript.
