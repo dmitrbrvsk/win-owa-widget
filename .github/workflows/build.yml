@@ -28,6 +28,8 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: Check version-specific release notes
+        run: node scripts/release-notes.mjs --check
       - run: npm ci --ignore-scripts
       - run: npm run typecheck
       - run: TZ=Europe/Moscow npm test
@@ -100,10 +102,12 @@ jobs:
         with:
           name: smoke-screenshots
           path: smoke/*.png
-      - name: Read version
+      - name: Read version and prepare release notes
         id: v
         shell: bash
-        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+        run: |
+          node scripts/release-notes.mjs > release/RELEASE-NOTES.md
+          echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
       - name: Checksums
         shell: bash
         working-directory: release
@@ -115,6 +119,7 @@ jobs:
             release/*.exe
             release/*.zip
             release/SHA256SUMS.txt
+            release/RELEASE-NOTES.md
 
   # Publishes a release when master carries a version that has none yet, or replaces one on a
   # hand-started republish run. It builds nothing and runs no project code: it only takes the
@@ -180,18 +185,7 @@ jobs:
           target_commitish: ${{ github.sha }} # the tag points at the commit that was built, not at the default branch
           name: OWA Widget ${{ needs.windows.outputs.version }}
           generate_release_notes: false
-          body: |
-            Встречи из Exchange / OWA в трее Windows: таймлайн дня, подключение к звонку одним нажатием, напоминания и уведомления с кнопками, ответы на приглашения (в том числе с комментарием), заметки к встречам, поиск по встречам, создание встреч и поиск свободного времени. Подробности и F.A.Q. — в [README](https://github.com/dmitrbrvsk/win-owa-widget#readme), модель безопасности — в [SECURITY.md](https://github.com/dmitrbrvsk/win-owa-widget/blob/master/SECURITY.md).
-
-            ## Установка
-            - **OWA-Widget-Setup-${{ needs.windows.outputs.version }}.exe** — установщик (Windows 10/11, x64; на ARM64 работает в эмуляции). Ставится для текущего пользователя, права администратора не нужны.
-            - **OWA-Widget-Setup-${{ needs.windows.outputs.version }}-arm64.exe** — тот же установщик, собранный для Windows на ARM64.
-            - **OWA-Widget-${{ needs.windows.outputs.version }}-portable-x64.zip** — без установки: распакуйте в любую папку и запустите `OWA Widget.exe`. Во временные папки ничего не пишется.
-
-            ## Как проверить, что файл настоящий
-            Установщик пока не подписан сертификатом Windows, поэтому SmartScreen может показать «Windows защитила ваш компьютер». Прежде чем нажимать «Выполнить в любом случае», сверьте файл:
-            - **Контрольная сумма.** В PowerShell: `Get-FileHash .\OWA-Widget-Setup-${{ needs.windows.outputs.version }}.exe -Algorithm SHA256` — результат должен совпасть со строкой в `SHA256SUMS.txt` из этого релиза.
-            - **Происхождение сборки.** `gh attestation verify .\OWA-Widget-Setup-${{ needs.windows.outputs.version }}.exe --repo dmitrbrvsk/win-owa-widget` подтверждает, что файл собран из этого репозитория workflow'ом GitHub Actions.
+          body_path: release/RELEASE-NOTES.md
           files: |
             release/*.exe
             release/*.zip

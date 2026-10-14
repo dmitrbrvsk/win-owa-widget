@@ -113,6 +113,6 @@ npm test
 npm run build
 ```
 
-`npm run dev` запускает приложение с настоящим аккаунтом, `npm run dist` собирает установщики Windows и portable-архив. Подробности: [устройство проекта и выпуск](docs/GUIDE.md#для-разработчиков), [ручные тест-кейсы](docs/TEST-CASES.md).
+`npm run dev` запускает приложение с настоящим аккаунтом, `npm run dist` собирает установщики Windows и portable-архив. Для каждой версии нужен отдельный [текст изменений](docs/releases/README.md). Подробности: [устройство проекта и выпуск](docs/GUIDE.md#для-разработчиков), [ручные тест-кейсы](docs/TEST-CASES.md).
 
 Идея проекта — [mac-owa-widget](https://github.com/ilyabazhenov/mac-owa-widget); Windows-версия написана заново на Electron, React и TypeScript.
