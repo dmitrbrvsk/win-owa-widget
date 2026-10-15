@@ -1,5 +1,6 @@
 version: 2
 updates:
+  # The npm ecosystem also handles Yarn lockfiles.
   - package-ecosystem: npm
     directory: /
     schedule:

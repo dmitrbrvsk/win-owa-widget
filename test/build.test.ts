@@ -18,7 +18,7 @@ describe('the page that ships forbids every network connection', () => {
 
   it('keeps connect-src none through the build', () => {
     const built = resolve(repoRoot, 'dist/renderer/index.html');
-    // Skipped on a tree that has not been built: `npm test` must not depend on `npm run build`.
+    // Skipped on a tree that has not been built: `yarn test` must not depend on `yarn build`.
     if (!existsSync(built)) return;
     expect(readFileSync(built, 'utf8')).toContain("connect-src 'none'");
   });

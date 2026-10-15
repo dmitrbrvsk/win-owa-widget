@@ -6,7 +6,7 @@ const watch = process.argv.includes('--watch');
 const common = {
   bundle: true,
   platform: 'node',
-  target: 'node22',
+  target: 'node24',
   format: 'cjs',
   // The .map files are kept out of the package (see electron-builder.yml), so a production bundle must
   // not point at them either: 'external' writes the map for reading a release stack trace locally but

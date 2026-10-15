@@ -333,14 +333,22 @@ Exchange не отдал вам его календарь: нет разреше
 
 ## Для разработчиков
 
+Нужны Node.js 24.22.0 LTS и Yarn 4.18.1. При использовании nvm команды ниже выбирают закрепленный Node.js; на Windows без nvm установите эту версию Node.js отдельно. Corepack поставляется с Node.js 24 и выбирает Yarn из поля `packageManager`.
+
+Зависимости фиксирует `yarn.lock`, CI устанавливает их через `yarn install --immutable`. Используется обычный `node_modules`. Автоматические скрипты сторонних пакетов отключены настройкой `enableScripts: false`; загрузка бинарника Electron запускается отдельно командой `yarn setup:electron`. Готовое приложение использует встроенный Node.js из Electron — устанавливать Node.js пользователю виджета не требуется.
+
 ### Запуск
 
 ```bash
-npm install
-npm run dev:demo     # вымышленные встречи, Exchange не нужен
-npm run dev          # с настоящим аккаунтом
-npm test             # тесты разбора OWA, логики встреч, уведомлений и защит
-npm run dist         # установщик и portable .zip в release/ (на Windows)
+nvm install
+nvm use
+corepack enable
+yarn install --immutable
+yarn setup:electron  # загрузить Electron с проверкой контрольных сумм
+yarn dev:demo        # вымышленные встречи, Exchange не нужен
+yarn dev             # с настоящим аккаунтом
+yarn test            # тесты разбора OWA, логики встреч, уведомлений и защит
+yarn dist            # установщик и portable .zip в release/ (на Windows)
 ```
 
 Тест-кейсы для ручного тестирования: [TEST-CASES.md](TEST-CASES.md) — 147 проверок по всем экранам, с предусловиями, шагами и ожидаемым результатом.
@@ -354,7 +362,7 @@ npm run dist         # установщик и portable .zip в release/ (на W
 | `src/main/owa/` | Клиент OWA: вход, `GetCalendarView`, `GetCalendarEvent`, ответы на приглашения, создание встреч (`CreateItem`), поиск людей (`ResolveNames`), занятость (`GetUserAvailability`) через EWS; разбор XML (`xml.ts`). Работает на сетевом стеке Chromium, поэтому SSO, прокси и сертификаты Windows подхватываются сами. |
 | `src/main/` | Трей и его пульсация (`trayPulse.ts`), окна, синхронизация, напоминания, уведомления (`toasts.ts`), «ворота» создания встреч с подтверждением и лимитами (`meetingGate.ts`), хранение настроек и пароля. |
 | `src/shared/` | Логика без привязки к Electron: поиск ссылок, раскладка таймлайна, статус трея, сравнение списков встреч (`changes.ts`), тексты и кнопки уведомлений (`toasts.ts`), привязка пароля к серверу (`secret.ts`), поиск по встречам (`search.ts`), сетка занятости и «лучшие варианты» (`availability.ts`), арифметика статистики встреч (`stats.ts`), проверка адресов (`email.ts`), текст подтверждения встречи (`meetingConfirm.ts`). Покрыта тестами. |
-| `src/renderer/` | Интерфейс на React. В обычном браузере работает на демо-данных (`npm run build:renderer`). |
+| `src/renderer/` | Интерфейс на React. В обычном браузере работает на демо-данных (`yarn build:renderer`). |
 
 ## Галерея интерфейса
 

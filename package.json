@@ -10,17 +10,18 @@
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "dev:demo": "node scripts/dev.mjs --demo",
-    "build": "npm run typecheck && node scripts/build-main.mjs && vite build",
+    "build": "yarn typecheck && node scripts/build-main.mjs && vite build",
     "build:main": "node scripts/build-main.mjs",
     "build:renderer": "vite build",
     "start": "electron .",
     "start:demo": "cross-env OWA_DEMO=1 electron .",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit",
     "test": "vitest run",
-    "dist": "npm run build && electron-builder --win nsis zip --x64 --publish never && electron-builder --win nsis --arm64 --config electron-builder.arm64.yml --publish never"
+    "dist": "yarn build && electron-builder --win nsis zip --x64 --publish never && electron-builder --win nsis --arm64 --config electron-builder.arm64.yml --publish never",
+    "setup:electron": "node node_modules/electron/install.js"
   },
   "devDependencies": {
-    "@types/node": "^22.15.0",
+    "@types/node": "^24.19.2",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^5.0.0",
@@ -33,5 +34,9 @@
     "typescript": "^5.9.3",
     "vite": "^7.1.0",
     "vitest": "^5.0.3"
+  },
+  "packageManager": "yarn@4.18.1+sha512.b2e1e7524f654f2749d32b4ebcb4622473cb5bcbc485df2007e12a154e50162a4d795526768bc5f5b8f81717bfd79deb2472813d86fb5ae2eb551fa9c872b08f",
+  "engines": {
+    "node": ">=24.22.0 <25"
   }
 }

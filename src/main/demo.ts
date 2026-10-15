@@ -1,4 +1,4 @@
-// Fictional meetings for `npm run dev:demo` and screenshots. No Exchange needed.
+// Fictional meetings for `yarn dev:demo` and screenshots. No Exchange needed.
 import type { AvailabilityEvent, AvailabilityRequest, AvailabilityResult, AvailabilityStatus, CalendarEvent, EventDetails, MeetingPlatform, PersonAvailability, PersonSuggestion, StatsRequest } from '../shared/types';
 import { SLOT_MINUTES, digitOfStatus, slotCount } from '../shared/availability';
 

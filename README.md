@@ -136,14 +136,20 @@ OWA Widget живет в области уведомлений и дает бы�
 
 ## Для разработчиков
 
+Для разработки: Node.js **24.22.0 LTS** и Yarn **4.18.1** через Corepack. Версии закреплены в `.nvmrc`, `.node-version` и `package.json`; CI использует тот же Node.js.
+
 Electron + React + TypeScript. Главный процесс отвечает за Exchange, хранение данных, трей и окна; интерфейс получает данные через preload/IPC. Общая логика календаря отделена от Electron.
 
 ```bash
-npm ci
-npm run dev:demo     # вымышленные встречи, Exchange не нужен
-npm run typecheck
-npm test
-npm run build
+nvm install
+nvm use
+corepack enable
+yarn install --immutable
+yarn setup:electron
+yarn dev:demo     # вымышленные встречи, Exchange не нужен
+yarn typecheck
+yarn test
+yarn build
 ```
 
-`npm run dev` запускает приложение с настоящим аккаунтом, `npm run dist` собирает установщики Windows и portable-архив. Для каждой версии нужен отдельный [текст изменений](docs/releases/README.md). Подробности: [устройство проекта и выпуск](docs/GUIDE.md#для-разработчиков), [ручные тест-кейсы](docs/TEST-CASES.md).
+`yarn dev` запускает приложение с настоящим аккаунтом, `yarn dist` собирает установщики Windows и portable-архив. Для каждой версии нужен отдельный [текст изменений](docs/releases/README.md). Подробности: [устройство проекта и выпуск](docs/GUIDE.md#для-разработчиков), [ручные тест-кейсы](docs/TEST-CASES.md).

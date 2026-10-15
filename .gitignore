@@ -3,3 +3,11 @@ dist
 release
 *.log
 .DS_Store
+
+# Yarn install state and caches are local; lockfile and intentional patches are tracked.
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+.pnp.*

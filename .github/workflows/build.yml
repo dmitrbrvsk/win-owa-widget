@@ -26,26 +26,24 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 22
-          cache: npm
+          node-version-file: .nvmrc
       - name: Check version-specific release notes
         run: node scripts/release-notes.mjs --check
-      - run: npm ci --ignore-scripts
-      - run: npm run typecheck
-      - run: TZ=Europe/Moscow npm test
-      # The whole tree, not --omit=dev: there are no runtime dependencies at all (`npm ls --omit=dev`
-      # prints "(empty)"), and Electron — the entire runtime that ships — is a devDependency, so a
-      # production-only audit would check nothing. Covered: high and critical advisories anywhere in
-      # the tree, Electron included. Not covered: moderate and low ones, which today are all in
-      # build-time tooling that never reaches a user's machine.
-      - run: npm audit --audit-level=high
+      - run: corepack enable
+      - run: yarn install --immutable
+      - run: yarn typecheck
+      - run: TZ=Europe/Moscow yarn test
+      # Audit direct and transitive dependencies, including devDependencies: Electron is one.
+      # Production-only auditing would miss the runtime that is packaged with the app.
+      # High and critical advisories block the build.
+      - run: yarn npm audit --all --recursive --severity high
       # The audit above only reports an advisory against the version that is installed, so the version
       # that was audited belongs in the log next to it.
       - name: Electron version covered by the audit
         run: node -p "require('electron/package.json').version"
 
   # Builds the installers. Runs the whole build toolchain over the dependency tree, so it gets no token
-  # that can write; third-party install scripts stay off even here (see npm ci below).
+  # that can write; third-party install scripts stay off even here (see .yarnrc.yml).
   windows:
     needs: test
     runs-on: windows-latest
@@ -59,12 +57,13 @@ jobs:
       # cache could carry in from another run is allowed into it.
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 22
-      # Install scripts of third-party packages do not run. Electron's own installer is started by
+          node-version-file: .nvmrc
+      # enableScripts: false keeps dependency install scripts off. Electron's installer is started by
       # hand: it downloads the binary and checks it against the checksums shipped in the package.
-      - run: npm ci --ignore-scripts
-      - run: node node_modules/electron/install.js
-      - run: npm run dist
+      - run: corepack enable
+      - run: yarn install --immutable
+      - run: yarn setup:electron
+      - run: yarn dist
       # Opens the popup, the settings, the create-meeting and the free-time windows from source on a real
       # Windows desktop and fails if any page did not render (the IPC sender check compares file paths, which differ per OS).
       - name: Smoke test the windows on Windows
@@ -74,7 +73,7 @@ jobs:
           $env:OWA_DEMO = '1'
           $env:OWA_SMOKE_SHOT = (Resolve-Path smoke).Path + '\popup.png'
           # The app exits 0 only when all four pages rendered (see OWA_SMOKE_SHOT in src/main/index.ts).
-          npx electron .
+          yarn exec electron .
           if ($LASTEXITCODE -ne 0) { Write-Error "smoke failed with exit code $LASTEXITCODE"; exit 1 }
       # The built app, not the source tree: starts the unpacked .exe with a throwaway profile (no server
       # configured, so nothing is sent anywhere) and fails if it exits, or if the log shows a window that
