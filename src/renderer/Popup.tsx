@@ -18,7 +18,7 @@ import { searchEvents } from '../shared/search';
 import { api } from './api';
 import { Detail } from './Detail';
 import { dayTitle, duration, hm, range, shortDay } from '../shared/format';
-import { eventColor, joinHost, useI18n, useNow } from './hooks';
+import { eventColor, ipcMessage, joinHost, useI18n, useNow } from './hooks';
 import { Icon } from './icons';
 import { meetingMenuProps } from './meetingMenu';
 import { SearchBox, SearchResults } from './MeetingSearch';
@@ -253,6 +253,7 @@ export function Popup({ snap }: { snap: Snapshot }) {
         )}
 
         <div className={`foot${sync.phase === 'error' ? ' err' : ''}`}>
+          <button className="icon-btn small" title={t.privacyOn} aria-label={t.privacyOn} onClick={() => { void api.setPrivacyMode(true).catch(e => setToastMsg(ipcMessage(e))); }}><Icon name="lock" size={14} /></button>
           {sync.phase === 'syncing' && (
             <>
               <span className="spin" />

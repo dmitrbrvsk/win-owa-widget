@@ -16,6 +16,9 @@ import {
 import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { privateEvent } from '../shared/privacy';
+import { supportReport } from '../shared/diagnostics';
+import { UpdateChecker } from './updates';
 import { IPC, type CalendarEvent, type CreateMeetingInput, type CreateMeetingResult, type EditMeetingInput, type MeetingBefore, type MeetingReplyInput, type CreateMeetingPrefill, type ReminderPayload, type SettingsUpdate, type Snapshot } from '../shared/types';
 import { joinCandidates, joinUrlForActions, displayTitle } from '../shared/events';
 import { linksInText, safeUrl, urlHost } from '../shared/meetingUrl';
@@ -40,7 +43,7 @@ import { MeetingGate, SlidingWindow } from './meetingGate';
 import { changedFields } from './owa/ewsMeeting';
 import { OwaError } from './owa/errors';
 import { isFirstRun } from './store';
-import { showToast, toastsSupported } from './toasts';
+import { closeAllToasts, showToast, toastsSupported } from './toasts';
 
 // Demo data and the screenshot hook are developer tools: an installed build ignores them.
 const DEMO = !app.isPackaged && (process.env.OWA_DEMO === '1' || process.argv.includes('--demo'));
@@ -177,9 +180,12 @@ function refreshOpenableLinks() {
   }
 }
 
+function visibleEvents(events: CalendarEvent[]): CalendarEvent[] {
+  return service.settings.privacyMode ? events.map(e => privateEvent(e, uiLang())) : events;
+}
 function snapshot(): Snapshot {
   refreshOpenableLinks();
-  return { events: service.events, sync: service.sync, settings: service.settings, demo: DEMO, version: app.getVersion(), taskbarLight, logPath: logPath(), noteIds: service.noteIds() };
+  return { events: visibleEvents(service.events), sync: service.settings.privacyMode ? { phase: service.sync.phase, lastSuccess: service.sync.lastSuccess, errorKind: service.sync.errorKind } : service.sync, settings: service.settings, demo: DEMO, version: app.getVersion(), taskbarLight, logPath: logPath(), noteIds: service.settings.privacyMode ? [] : service.noteIds(), participantGroups: service.settings.privacyMode ? { account: 'private', groups: [] } : service.participantGroupState() };
 }
 
 function broadcast() {
@@ -413,7 +419,7 @@ function showReminderWindow(events: CalendarEvent[]) {
     });
     reminderWin.once('ready-to-show', () => reminderWin?.showInactive());
   } else {
-    reminderWin.webContents.send(IPC.reminder, pendingReminder);
+    reminderWin.webContents.send(IPC.reminder, { events: visibleEvents(events) });
     reminderWin.showInactive();
   }
 }
@@ -425,7 +431,7 @@ function showReminder(events: CalendarEvent[]) {
     // button must never open a link the person was not shown. If it changed, the window opens instead.
     const advertised = joinUrlForActions(events[0]);
     const shown = showToast(
-      reminderToast(events, new Date(), uiLang()),
+      reminderToast(visibleEvents(events), new Date(), uiLang()),
       {
         onAction: (id, minutes) => {
           if (id === 'join') {
@@ -491,7 +497,7 @@ async function acceptFromToast(eventId: string) {
     showToast({ title: text.accepted, body: '', buttons: [] }, {}, { silent: true });
   } catch (e) {
     log.warn(`accept from notification failed: ${describeError(e)}`);
-    showToast({ title: text.failed, body: oneLine(describeError(e), 160), buttons: [] }, { onClick: () => openMeeting(eventId) });
+    showToast({ title: text.failed, body: service.settings.privacyMode ? '' : oneLine(describeError(e), 160), buttons: [] }, { onClick: () => openMeeting(eventId) });
   }
 }
 
@@ -508,7 +514,7 @@ function notifyChanges(changes: EventChange[]) {
   if (fresh.length) log.info(`changes: ${fresh.length} new (${fresh.filter((c) => c.kind === 'moved').length} moved, ${fresh.filter((c) => c.kind === 'cancelled').length} cancelled, ${fresh.filter((c) => c.kind === 'invited').length} invited)`);
   const now = Date.now();
   noteTimes = noteTimes.filter((t) => now - t < 3_600_000);
-  for (const note of describeChanges(fresh, new Date(), uiLang())) {
+  for (const note of describeChanges(fresh.map(c => ({ ...c, event: visibleEvents([c.event])[0], was: c.was ? visibleEvents([c.was])[0] : undefined })), new Date(), uiLang())) {
     if (noteTimes.length >= NOTES_PER_HOUR) break;
     noteTimes.push(now);
     const eventId = note.eventId;
@@ -530,7 +536,7 @@ function notifyChanges(changes: EventChange[]) {
 
 function updateTrayMenu() {
   if (!tray) return;
-  const join = joinCandidates(service.events, new Date());
+  const join = service.settings.privacyMode ? [] : joinCandidates(service.events, new Date());
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: 'Открыть', click: showPopup },
@@ -542,6 +548,7 @@ function updateTrayMenu() {
       { label: 'Найти свободное время…', click: openAvailability },
       { label: 'Статистика встреч…', click: openStats },
       { type: 'separator' as const },
+      { label: 'Режим приватности', type: 'checkbox' as const, checked: service.settings.privacyMode, click: () => service.setPrivacyMode(!service.settings.privacyMode) },
       { label: 'Настройки…', click: openSettings },
       { label: 'Выход', role: 'quit' as const },
     ]),
@@ -589,7 +596,7 @@ const bitmapImage = (bgra: Buffer) => nativeImage.createFromBitmap(bgra, { width
 function refreshTray(now = new Date()) {
   if (!tray || tray.isDestroyed() || !service) return;
   const lang = trayLang();
-  const p = trayPresentation(service.events, now);
+  const p = trayPresentation(visibleEvents(service.events), now);
   const tooltip = tooltipFor(p, dict(lang), lang).slice(0, 127);
   lastTooltip = tooltip;
   const key = [p.kind, p.badge ?? '', p.invites, p.pulseUntil ?? '', taskbarLight, tooltip].join('\n');
@@ -736,6 +743,18 @@ async function confirmCancellation(before: MeetingBefore, count: number): Promis
 }
 
 function registerIpc() {
+  const updates = new UpdateChecker();
+  const groupWrites = new SlidingWindow(30, 60_000);
+  const groupWrite = () => {
+    if (!groupWrites.allows(Date.now())) throw new Error('Слишком часто: подождите секунду');
+    groupWrites.take(Date.now());
+  };
+  handle(IPC.setPrivacyMode, (_e, enabled) => service.setPrivacyMode(enabled));
+  handle(IPC.saveParticipantGroup, (_e, account, input) => { groupWrite(); return service.saveParticipantGroup(account, input); });
+  handle(IPC.deleteParticipantGroup, (_e, account, id) => { groupWrite(); service.deleteParticipantGroup(account, id); });
+  handle(IPC.getSupportReport, () => supportReport(app.getVersion(), process.platform, process.arch, DEMO, service.sync, service.lastDiagnostics));
+  handle(IPC.checkForUpdates, () => updates.check(app.getVersion()));
+  handle(IPC.openUpdatePage, () => updates.open());
   // Everything about creating a meeting goes through this one gate (see meetingGate.ts for the order).
   const meetingGate = new MeetingGate({ confirm: confirmInvitations, deliver: (m) => service.createMeeting(m) });
   // A page that asks the directory more than this is not someone typing.
@@ -744,7 +763,9 @@ function registerIpc() {
   handle(IPC.getSnapshot, () => snapshot());
   handle(IPC.syncNow, () => service.syncNow('manual'));
   handle(IPC.getDetails, async (_e, id) => {
+    if (service.settings.privacyMode) return { attendees: [] };
     const details = await service.details(parseId(id));
+    if (service.settings.privacyMode) return { attendees: [] };
     // The description is served to the window, which makes its links clickable: the same links, and
     // only those, may be opened afterwards.
     if (details?.bodyText) for (const u of linksInText(details.bodyText)) allowLink(u);
@@ -760,6 +781,7 @@ function registerIpc() {
   });
   handle(IPC.copyText, (_e, text) => clipboard.writeText(parseClipboardText(text)));
   handle(IPC.meetingMenu, (e, id) => {
+    if (service.settings.privacyMode) return;
     const eventId = parseId(id);
     const win = BrowserWindow.fromWebContents(e.sender);
     if (win && win === popup) openMeetingMenu(win, eventId);
@@ -776,7 +798,7 @@ function registerIpc() {
     if (next && !(await confirmServerChange(next, BrowserWindow.fromWebContents(e.sender) ?? undefined))) {
       return { ok: false, message: 'Проверка отменена: подключение к новому серверу не подтверждено' };
     }
-    return service.testConnection(update as SettingsUpdate);
+    return service.testConnection(update as SettingsUpdate, progress => { if (!e.sender.isDestroyed()) e.sender.send(IPC.connectionProgress, progress); });
   });
   handle(IPC.trustCertificate, async (e, fp) => {
     if (!isFingerprint(fp)) throw new Error('Недопустимый отпечаток');
@@ -787,7 +809,7 @@ function registerIpc() {
   handle(IPC.clearCache, () => service.clearCache());
   // Notes are the person's own and stay on this computer: reading and writing them is local, and a
   // page that writes in a loop is slowed down rather than allowed to rewrite the encrypted file endlessly.
-  handle(IPC.getNote, (_e, id) => service.getNote(parseId(id)));
+  handle(IPC.getNote, (_e, id) => service.settings.privacyMode ? '' : service.getNote(parseId(id)));
   handle(IPC.setNote, (_e, id, text) => {
     if (!noteWrites.allows(Date.now())) throw new Error('Слишком часто: подождите секунду');
     noteWrites.take(Date.now());
@@ -934,7 +956,7 @@ function registerIpc() {
     else win?.close();
   });
   handle(IPC.quit, () => app.quit());
-  handle(IPC.getReminder, () => pendingReminder);
+  handle(IPC.getReminder, () => pendingReminder ? { events: visibleEvents(pendingReminder.events) } : null);
   handle(IPC.snoozeReminder, (_e, minutes) => {
     if (pendingReminder) reminders.snooze(pendingReminder.events, parseMinutes(minutes));
     reminderWin?.close();
@@ -1015,6 +1037,7 @@ void app.whenReady().then(async () => {
   readTaskbarTheme();
   nativeTheme.on('updated', readTaskbarTheme);
   service.on('settings', (prev, next) => {
+    if (!prev.privacyMode && next.privacyMode) closeAllToasts();
     nativeTheme.themeSource = next.theme;
     if (prev.popupSize !== next.popupSize && popup) {
       const { width, height } = popupSize(next.popupSize);

@@ -17,6 +17,7 @@ import {
 } from '../shared/availability';
 import { api } from './api';
 import { Alert } from './Alert';
+import { ParticipantGroups } from './ParticipantGroups';
 import { PeopleField } from './PeopleField';
 import { ipcMessage, useI18n, useNow } from './hooks';
 import { Icon } from './icons';
@@ -187,7 +188,7 @@ export function Availability({ snap }: { snap: Snapshot }) {
   const [duration, setDuration] = useState<MeetingDuration>(60);
   const [week, setWeek] = useState(() => weekStart(new Date()));
   const [weekends, setWeekends] = useState(false);
-  const [result, setResult] = useState<AvailabilityResult | null>(null);
+  const [response, setResponse] = useState<{ key: string; value: AvailabilityResult } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pickedStart, setPickedStart] = useState<number | null>(null);
@@ -212,6 +213,12 @@ export function Availability({ snap }: { snap: Snapshot }) {
     return { emails, start: w.start.toISOString(), end: w.end.toISOString() };
   }, [emails, week]);
 
+  const requestKey = JSON.stringify(request);
+  const latest = useRef(requestKey);
+  latest.current = requestKey;
+  const result = response?.key === requestKey ? response.value : null;
+  useEffect(() => { setPickedStart(null); setError(null); }, [requestKey]);
+
   // One request at a time (the main process allows no more); a newer one waits and replaces older ones in the queue.
   const running = useRef(false);
   const queued = useRef<AvailabilityRequest | null>(null);
@@ -224,12 +231,12 @@ export function Availability({ snap }: { snap: Snapshot }) {
     setLoading(true);
     try {
       const r = await api.getAvailability(req);
-      if (!queued.current) {
-        setResult(r);
+      if (!queued.current && JSON.stringify(req) === latest.current) {
+        setResponse({ key: JSON.stringify(req), value: r });
         setError(null);
       }
     } catch (e) {
-      setError(ipcMessage(e));
+      if (JSON.stringify(req) === latest.current) { setResponse(null); setError(ipcMessage(e)); }
     } finally {
       running.current = false;
       const next = queued.current;
@@ -261,7 +268,7 @@ export function Availability({ snap }: { snap: Snapshot }) {
     });
   }, [result, snap.events, snap.settings.workdayStartHour, snap.settings.workdayEndHour, weekends, window0, nowMs]);
 
-  const options = useMemo(() => bestOptions(grid, duration, new Date(nowMs), 5), [grid, duration, nowMs]);
+  const options = useMemo(() => result ? bestOptions(grid, duration, new Date(nowMs), 5) : [], [result, grid, duration, nowMs]);
   const selected = options.find((o) => o.start === pickedStart) ?? null;
 
   const names = (list: string[]) => {
@@ -303,6 +310,9 @@ export function Availability({ snap }: { snap: Snapshot }) {
         </div>
       )}
 
+      <ParticipantGroups state={snap.participantGroups} emails={emails} hasDraft={!!draft.trim()} t={t} onApply={list => {
+        setEmails(list); setDraft(''); setPickedNames({}); setPickedStart(null); setCreateError(null);
+      }} />
       <div className="av-bar">
         <div className="av-field">
           <div className="av-label">{t.availAttendees}</div>
@@ -344,7 +354,7 @@ export function Availability({ snap }: { snap: Snapshot }) {
         </button>
         <Toggle checked={weekends} onChange={setWeekends} label={t.availWeekends} />
         <span className="grow" />
-        {loading && (
+        {(loading || (!result && !error)) && (
           <span className="av-loading sec" role="status">
             <span className="spin" /> {t.availLoading}
           </span>
@@ -355,18 +365,18 @@ export function Availability({ snap }: { snap: Snapshot }) {
       </div>
 
       <div className="av-main">
-        <section className={`av-gridbox${loading ? ' busy' : ''}`}>
+        <section className={`av-gridbox${loading || !result ? ' busy' : ''}`}>
           <Grid grid={grid} selected={selected} now={nowMs} t={t} lang={lang} today={todayMs} />
           <div className="av-foot">
             <Legend t={t} />
-            {!error && fromCalendar && !loading && <div className="ter av-note">{t.availMeFromCalendar}</div>}
+            {!error && fromCalendar && !loading && result && <div className="ter av-note">{t.availMeFromCalendar}</div>}
           </div>
         </section>
 
         <aside className="av-side" aria-label={t.availBest}>
           <h2>{t.availBest}</h2>
           {!emails.length && <div className="hint sec av-hint">{t.availNoPeople}</div>}
-          {options.length === 0 ? (
+          {!result && !error ? <div className="av-empty" role="status">{t.availLoading}</div> : options.length === 0 ? (
             <div className="av-empty">
               <div>{t.availNoBest}</div>
               <div className="hint sec">{t.availNoBestHint}</div>

@@ -1,7 +1,9 @@
-import { useState } from 'react';
-import type { AppSettings, CertInfo, ConnectionTestResult, Snapshot } from '../shared/types';
+import { useEffect, useState } from 'react';
+import type { AppSettings, CertInfo, ConnectionDiagnostics as Progress, ConnectionTestResult, Snapshot } from '../shared/types';
 import { api } from './api';
 import { ipcMessage, useI18n } from './hooks';
+import { ConnectionDiagnostics } from './ConnectionDiagnostics';
+import { UpdateCheck } from './UpdateCheck';
 import { checkServerUrl } from '../shared/serverUrl';
 
 function Switch({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
@@ -22,6 +24,19 @@ export function Settings({ snap }: { snap: Snapshot }) {
   const [cacheMsg, setCacheMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [notesMsg, setNotesMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
+  const [progress, setProgress] = useState<Progress | null>(null);
+  const [report, setReport] = useState('');
+  const [reportMessage, setReportMessage] = useState('');
+  useEffect(() => api.onConnectionProgress(setProgress), []);
+  async function copyReport() {
+    setReportMessage('');
+    try {
+      const text = JSON.stringify(await api.getSupportReport(), null, 2);
+      setReport(text);
+      await api.copyText(text);
+      setReportMessage(t.supportCopied);
+    } catch (e) { setReportMessage(ipcMessage(e)); }
+  }
   const acc = s.account;
   // The pin lives in the main process; show the live value, not the form's copy.
   const pinned = snap.settings.account;
@@ -33,8 +48,13 @@ export function Settings({ snap }: { snap: Snapshot }) {
   async function runTest() {
     setTesting(true);
     setTest(null);
+    setProgress(null);
     try {
-      setTest(await api.testConnection(update()));
+      const result = await api.testConnection(update());
+      setTest(result);
+      setProgress(result.diagnostics ?? null);
+    } catch (e) {
+      setTest({ ok: false, message: ipcMessage(e) });
     } finally {
       setTesting(false);
     }
@@ -201,6 +221,7 @@ export function Settings({ snap }: { snap: Snapshot }) {
             {testing ? t.testing : t.testConnection}
           </button>
         </div>
+        {progress && <ConnectionDiagnostics progress={progress} t={t} />}
         {test?.untrustedCert && (
           <div className="setting-row">
             <div className="label">
@@ -226,6 +247,8 @@ export function Settings({ snap }: { snap: Snapshot }) {
         )}
       </div>
 
+      <h2>{t.privacyTitle}</h2>
+      <div className="card"><div className="setting-row"><div className="label"><div>{t.privacyTitle}</div><div className="hint">{t.privacyHint}</div></div><button className="btn compact" onClick={() => { void api.setPrivacyMode(true).catch(e => setSaveError(ipcMessage(e))); }}>{t.privacyOn}</button></div></div>
       <h2>{t.behaviour}</h2>
       <div className="card">
         <div className="setting-row">
@@ -342,8 +365,11 @@ export function Settings({ snap }: { snap: Snapshot }) {
         </div>
       </div>
 
+      <UpdateCheck version={snap.version} t={t} />
       <h2>{t.diagnostics}</h2>
       <div className="card">
+        <div className="setting-row"><div className="label"><div className="hint">{t.supportHint}</div>{reportMessage && <div role="status" className="hint">{reportMessage}</div>}</div><button className="btn compact" onClick={() => void copyReport()}>{t.supportCopy}</button></div>
+        {report && <details className="support-preview"><summary>{t.supportPreview}</summary><pre>{report}</pre></details>}
         <div className="setting-row">
           <div className="label">
             <div className="hint">{t.logHint}</div>

@@ -26,6 +26,8 @@ export interface HttpRequest {
   headers?: Record<string, string>;
   body?: string;
   timeoutMs?: number;
+  /** Response headers prove server reachability and TLS acceptance, even if the body later fails. */
+  onResponse?: () => void;
 }
 
 export interface CredentialPolicy {
@@ -87,6 +89,7 @@ export function sendRequest(ses: Session, req: HttpRequest, creds: CredentialPol
     };
 
     request.on('redirect', (status, _method, redirectUrl) => {
+      req.onResponse?.();
       // A 307/308 would re-send the POST body (it carries the password on forms login), and custom
       // headers such as the CANARY follow the request: never leave the configured host or HTTPS.
       const refusal = redirectRefusal(redirectUrl, creds.origin);
@@ -125,6 +128,7 @@ export function sendRequest(ses: Session, req: HttpRequest, creds: CredentialPol
     });
 
     request.on('response', (res) => {
+      req.onResponse?.();
       const chunks: Buffer[] = [];
       let size = 0;
       res.on('data', (c: Buffer) => {

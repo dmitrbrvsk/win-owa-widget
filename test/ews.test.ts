@@ -256,6 +256,21 @@ describe('response body', () => {
 
   it('refuses a body over the 8 MB limit', async () => {
     srv.reply = () => ({ status: 200, bytes: 9 * 1024 * 1024 });
-    await expect(sendRequest(fakeSession, { url: `${BASE}/owa/` }, creds, {})).rejects.toThrow('Сервер прислал слишком большой ответ');
+    const onResponse = vi.fn();
+    await expect(sendRequest(fakeSession, { url: `${BASE}/owa/`, onResponse }, creds, {})).rejects.toThrow('Сервер прислал слишком большой ответ');
+    expect(onResponse).toHaveBeenCalledOnce(); // TLS and response headers succeeded before the body failed.
   });
+});
+
+
+it('reports transport acceptance separately from a verified OWA session', async () => {
+  const stages: string[] = [];
+  const connected = new OwaClient({ serverUrl: BASE, useWindowsAuth: true, onConnectionStage: stage => stages.push(stage) });
+  await connected.authenticate();
+  expect(stages).toEqual(['server', 'certificate', 'auth']);
+  stages.length = 0;
+  srv.canary = undefined;
+  const rejected = new OwaClient({ serverUrl: BASE, useWindowsAuth: true, onConnectionStage: stage => stages.push(stage) });
+  await expect(rejected.authenticate()).rejects.toThrow();
+  expect(stages).toContain('server'); expect(stages).toContain('certificate'); expect(stages).not.toContain('auth');
 });

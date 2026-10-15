@@ -15,4 +15,5 @@ export const DEFAULT_SETTINGS: AppSettings = {
   language: 'system',
   popupSize: 'regular',
   welcomeDone: false,
+  privacyMode: false,
 };

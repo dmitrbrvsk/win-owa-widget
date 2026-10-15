@@ -100,3 +100,11 @@ export function showToast(def: ToastDef, handlers: ToastHandlers, opts: ToastOpt
   log.info(`toast: handed to Windows${opts.group ? ` (${opts.group})` : ''}, ${def.buttons.length} button(s)`);
   return true;
 }
+
+/** Best effort dismissal of notifications already shown when privacy is enabled. */
+export function closeAllToasts() {
+  for (const n of [...live.keys()]) {
+    live.delete(n);
+    try { n.close(); } catch { /* already closed */ }
+  }
+}

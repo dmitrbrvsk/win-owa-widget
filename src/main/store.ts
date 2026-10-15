@@ -1,11 +1,12 @@
 // Settings (plain JSON) and secrets / cache (encrypted with Windows DPAPI via safeStorage).
 import { app, safeStorage } from 'electron';
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { statSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AppSettings, CalendarEvent } from '../shared/types';
 import { checkServerUrl, serverKey } from '../shared/serverUrl';
 import { openSecret, sealSecret } from '../shared/secret';
 import { NoteBook } from '../shared/notes';
+import { ParticipantGroupBook } from '../shared/participantGroups';
 import { readStoredPin, sanitizeEvents, sanitizeSettings } from '../shared/validate';
 import { log } from './log';
 import { DEFAULT_SETTINGS } from './store.defaults';
@@ -149,5 +150,21 @@ export function saveNotes(book: NoteBook): boolean {
   const enc = encrypt(JSON.stringify(book));
   if (!enc) return false;
   writeAtomic(p, enc);
+  return true;
+}
+
+/** Participant addresses are never written as plain JSON. */
+export function loadParticipantGroups(): ParticipantGroupBook {
+  try {
+    const path = join(dir(), 'groups.bin');
+    if (!existsSync(path) || statSync(path).size > 1024 * 1024) return new ParticipantGroupBook();
+    const plain = decrypt(readFileSync(path));
+    return plain ? ParticipantGroupBook.parse(JSON.parse(plain)) : new ParticipantGroupBook();
+  } catch { return new ParticipantGroupBook(); }
+}
+export function saveParticipantGroups(book: ParticipantGroupBook): boolean {
+  const enc = encrypt(JSON.stringify(book));
+  if (!enc) return false;
+  writeAtomic(join(dir(), 'groups.bin'), enc);
   return true;
 }

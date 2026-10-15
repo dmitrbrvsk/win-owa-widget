@@ -126,6 +126,7 @@ export interface AppSettings {
   popupSize: PopupSize;
   /** The short tour has been seen (or skipped): it opens by itself only once. */
   welcomeDone: boolean;
+  privacyMode: boolean;
 }
 
 export interface SettingsUpdate {
@@ -146,6 +147,7 @@ export interface Snapshot {
   taskbarLight: boolean;
   /** The meetings the person has written a note on (the notes themselves are asked for one at a time). */
   noteIds: string[];
+  participantGroups: ParticipantGroupState;
 }
 
 export interface ReminderPayload {
@@ -157,7 +159,32 @@ export interface SaveResult {
   passwordRemoved: boolean;
 }
 
+export interface ParticipantGroup { id: string; name: string; emails: string[] }
+export interface ParticipantGroupInput { id?: string; name: string; emails: string[] }
+export interface ParticipantGroupState { account: string; groups: ParticipantGroup[] }
+export type DiagnosticStage = 'server' | 'certificate' | 'auth' | 'calendar';
+export type DiagnosticStatus = 'pending' | 'running' | 'passed' | 'failed' | 'skipped';
+export interface ConnectionDiagnostics {
+  checkedAt: string;
+  stages: Record<DiagnosticStage, DiagnosticStatus>;
+  errorKind?: SyncState['errorKind'];
+  httpStatus?: number;
+  errorCode?: string;
+}
+export interface SupportReport {
+  format: 1;
+  version: string;
+  platform: string;
+  arch: string;
+  generatedAt: string;
+  demo: boolean;
+  connection?: ConnectionDiagnostics;
+  sync: Pick<SyncState, 'phase' | 'lastSuccess' | 'errorKind'>;
+}
+export interface UpdateCheckResult { status: 'current' | 'available'; currentVersion: string; latestVersion: string }
+
 export interface ConnectionTestResult {
+  diagnostics?: ConnectionDiagnostics;
   ok: boolean;
   message: string;
   eventCount?: number;
@@ -308,6 +335,14 @@ export interface StatsRequest {
 
 /** API exposed by the preload script as `window.owa`. */
 export interface OwaApi {
+  setPrivacyMode(enabled: boolean): Promise<void>;
+  saveParticipantGroup(account: string, input: ParticipantGroupInput): Promise<ParticipantGroup>;
+  deleteParticipantGroup(account: string, id: string): Promise<void>;
+  onConnectionProgress(cb: (progress: ConnectionDiagnostics) => void): () => void;
+  getSupportReport(): Promise<SupportReport>;
+  checkForUpdates(): Promise<UpdateCheckResult>;
+  openUpdatePage(): Promise<void>;
+
   getSnapshot(): Promise<Snapshot>;
   onSnapshot(cb: (s: Snapshot) => void): () => void;
   syncNow(): Promise<void>;
@@ -379,6 +414,14 @@ export interface OwaApi {
 }
 
 export const IPC = {
+  setPrivacyMode: 'owa:setPrivacyMode',
+  saveParticipantGroup: 'owa:saveParticipantGroup',
+  deleteParticipantGroup: 'owa:deleteParticipantGroup',
+  connectionProgress: 'owa:connectionProgress',
+  getSupportReport: 'owa:getSupportReport',
+  checkForUpdates: 'owa:checkForUpdates',
+  openUpdatePage: 'owa:openUpdatePage',
+
   getSnapshot: 'owa:getSnapshot',
   snapshot: 'owa:snapshot',
   syncNow: 'owa:syncNow',

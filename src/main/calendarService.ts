@@ -1,4 +1,5 @@
 // Owns the account, the sync loop and the current meeting list.
+import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import type { AppSettings, AvailabilityRequest, AvailabilityResult, CalendarEvent, CertInfo, ConnectionTestResult, CreateMeetingInput, EditMeetingInput, EventDetails, MeetingBefore, PersonSuggestion, RsvpAction, SaveResult, SettingsUpdate, StatsRequest, SyncState } from '../shared/types';
 import { describeError, log } from './log';
@@ -14,6 +15,10 @@ import { demoAvailability, demoDetails, demoEvents, demoPeople, demoStatsEvents 
 import { RequestGate } from './limits';
 import { clearEventCache, loadEventCache, loadNotes, loadPassword, loadSettings, saveEventCache, saveNotes, savePassword, saveSettings } from './store';
 import { NoteBook } from '../shared/notes';
+import { ParticipantGroupBook, participantGroupAccount } from '../shared/participantGroups';
+import { loadParticipantGroups, saveParticipantGroups } from './store';
+import { diagnosticCode, DIAGNOSTIC_STAGES, initialDiagnostics } from '../shared/diagnostics';
+import type { ConnectionDiagnostics, DiagnosticStage, ParticipantGroupState } from '../shared/types';
 
 const DAYS_BACK = 7;
 const DAYS_AHEAD = 30;
@@ -63,6 +68,9 @@ export class CalendarService extends EventEmitter {
   private demoCreatedDetails = new Map<string, EventDetails>();
   /** The person's notes on meetings. In demo mode they live in memory only. */
   private notes: NoteBook;
+  private groups: ParticipantGroupBook;
+  lastDiagnostics?: ConnectionDiagnostics;
+  private readonly testGate = new RequestGate(1, 6, 60_000);
   /** Free/busy lookups: one at a time and 30 in ten minutes, whatever the window asks for. */
   private readonly availabilityGate = new RequestGate(1, 30, 10 * 60_000);
   /**
@@ -83,6 +91,7 @@ export class CalendarService extends EventEmitter {
     this.demo = demo;
     this.settings = loadSettings();
     this.notes = demo ? new NoteBook() : loadNotes();
+    this.groups = demo ? new ParticipantGroupBook() : loadParticipantGroups();
     if (!demo) this.events = loadEventCache();
     if (!demo && !this.settings.account.serverUrl) this.sync = { phase: 'notConfigured' };
   }
@@ -249,6 +258,42 @@ export class CalendarService extends EventEmitter {
       throw e;
     }
     void this.refreshAfterChange();
+  }
+
+  participantGroupState(): ParticipantGroupState {
+    const account = participantGroupAccount(this.settings.account);
+    return { account, groups: this.groups.list(account) };
+  }
+  private checkGroupAccount(account: unknown): string {
+    const expected = participantGroupAccount(this.settings.account);
+    if (account !== expected) throw new Error('Аккаунт изменился: откройте поиск времени заново');
+    return expected;
+  }
+  saveParticipantGroup(account: unknown, input: unknown) {
+    const key = this.checkGroupAccount(account);
+    const next = ParticipantGroupBook.parse(this.groups.toJSON());
+    const saved = next.save(key, input, randomUUID);
+    if (!this.demo && !saveParticipantGroups(next)) throw new Error('Группу нельзя сохранить: недоступно шифрование Windows');
+    this.groups = next;
+    this.emit('changed');
+    return saved;
+  }
+  deleteParticipantGroup(account: unknown, id: unknown) {
+    const key = this.checkGroupAccount(account);
+    const next = ParticipantGroupBook.parse(this.groups.toJSON());
+    next.remove(key, id);
+    if (!this.demo && !saveParticipantGroups(next)) throw new Error('Группу нельзя удалить: недоступно шифрование Windows');
+    this.groups = next;
+    this.emit('changed');
+  }
+  setPrivacyMode(enabled: unknown) {
+    if (typeof enabled !== 'boolean') throw new Error('Недопустимый режим приватности');
+    const prev = this.settings;
+    const next = { ...prev, privacyMode: enabled };
+    if (!this.demo) saveSettings(next);
+    this.settings = next;
+    this.emit('settings', prev, next);
+    this.emit('changed');
   }
 
   // ---------- Notes ----------
@@ -524,6 +569,7 @@ export class CalendarService extends EventEmitter {
     const accountChanged =
       clean.password !== undefined || JSON.stringify({ ...prev.account, hasPassword: 0 }) !== JSON.stringify({ ...this.settings.account, hasPassword: 0 });
     if (accountChanged) {
+      this.lastDiagnostics = undefined;
       this.authLatched = false;
       if (prev.account.serverUrl !== this.settings.account.serverUrl) {
         this.events = [];
@@ -533,13 +579,27 @@ export class CalendarService extends EventEmitter {
       void this.syncNow('manual');
     }
     if (prev.syncIntervalMinutes !== this.settings.syncIntervalMinutes) this.reschedule();
-    this.emit('changed');
     this.emit('settings', prev, this.settings);
+    this.emit('changed');
     return { passwordRemoved };
   }
 
-  async testConnection(update: SettingsUpdate): Promise<ConnectionTestResult> {
-    if (this.demo) return { ok: true, message: 'Демо-режим: подключение не требуется', eventCount: this.events.length };
+  async testConnection(update: SettingsUpdate, progress?: (d: ConnectionDiagnostics) => void): Promise<ConnectionTestResult> {
+    const release = this.testGate.enter();
+    try { return await this.doTestConnection(update, progress); } finally { release(); }
+  }
+  private async doTestConnection(update: SettingsUpdate, progress?: (d: ConnectionDiagnostics) => void): Promise<ConnectionTestResult> {
+    const diagnostics = initialDiagnostics();
+    const emit = () => { this.lastDiagnostics = structuredClone(diagnostics); progress?.(structuredClone(diagnostics)); };
+    const passed = (stage: DiagnosticStage) => {
+      if (diagnostics.stages[stage] === 'passed') return;
+      diagnostics.stages[stage] = 'passed';
+      const next = DIAGNOSTIC_STAGES[DIAGNOSTIC_STAGES.indexOf(stage) + 1];
+      if (next && diagnostics.stages[next] === 'pending') diagnostics.stages[next] = 'running';
+      emit();
+    };
+    emit();
+    if (this.demo) { for (const stage of DIAGNOSTIC_STAGES) diagnostics.stages[stage] = 'skipped'; emit(); return { ok: true, message: 'Демо-режим: подключение не проверялось', diagnostics }; }
     const clean = sanitizeUpdate(update, this.settings);
     const a = clean.settings.account;
     let client: OwaClient | undefined;
@@ -548,6 +608,7 @@ export class CalendarService extends EventEmitter {
       client = new OwaClient({
         serverUrl: a.serverUrl,
         partition: 'owa-test',
+        onConnectionStage: passed,
         useWindowsAuth: !(a.username && password),
         username: a.username || undefined,
         password,
@@ -556,13 +617,25 @@ export class CalendarService extends EventEmitter {
       log.info(`test: connecting to ${client.host}`);
       const now = new Date();
       const events = await client.fetchCalendarView(new Date(now.getFullYear(), now.getMonth(), now.getDate()), new Date(now.getTime() + 7 * 86_400_000));
+      passed('calendar');
       log.info(`test: ok, ${events.length} events`);
-      return { ok: true, message: `Подключено. Встреч на неделю: ${events.length}`, eventCount: events.length };
+      return { ok: true, message: `Подключено. Встреч на неделю: ${events.length}`, eventCount: events.length, diagnostics };
     } catch (e) {
       if (e instanceof OwaError && e.cert) this.untrusted = e.cert;
       log.warn(`test: failed: ${describeError(e)}`);
       const d = describe(e);
-      return { ok: false, message: d.error ?? 'Ошибка', untrustedCert: d.untrustedCert };
+      diagnostics.errorKind = d.errorKind;
+      if (e instanceof OwaError) {
+        diagnostics.httpStatus = e.status;
+        diagnostics.errorCode = diagnosticCode(e.detail);
+        if (e.status || e.kind === 'certificate') diagnostics.stages.server = 'passed';
+        if (e.status) diagnostics.stages.certificate = 'passed';
+      }
+      const failed = d.errorKind === 'certificate' ? 'certificate' : diagnostics.stages.auth === 'passed' ? 'calendar' : diagnostics.stages.certificate === 'passed' ? 'auth' : 'server';
+      diagnostics.stages[failed] = 'failed';
+      for (const stage of DIAGNOSTIC_STAGES) if (diagnostics.stages[stage] === 'running' || diagnostics.stages[stage] === 'pending') diagnostics.stages[stage] = 'skipped';
+      emit();
+      return { ok: false, message: d.error ?? 'Ошибка', untrustedCert: d.untrustedCert, diagnostics };
     } finally {
       client?.dispose();
     }

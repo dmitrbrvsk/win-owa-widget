@@ -1,6 +1,7 @@
 import { Component, StrictMode, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
+import { PrivateCalendar } from './PrivateCalendar';
 import { Create } from './Create';
 import { Availability } from './Availability';
 import { Popup } from './Popup';
@@ -40,12 +41,13 @@ function App() {
   useTheme(snap);
   if (error) return <Trouble title="Нет связи с приложением" text={error} />;
   if (!snap) return null;
+  if (snap.settings.privacyMode) return <PrivateCalendar snap={snap} />;
   const route = location.hash.replace(/^#\/?/, '').split('?')[0];
   if (route === 'settings') return <Settings snap={snap} />;
   if (route === 'welcome') return <Welcome snap={snap} />;
   if (route === 'reminder') return <Reminder snap={snap} />;
   if (route === 'create') return <Create snap={snap} />;
-  if (route === 'availability') return <Availability snap={snap} />;
+  if (route === 'availability') return <Availability key={snap.participantGroups.account} snap={snap} />;
   if (route === 'stats') return <Stats snap={snap} />;
   return <Popup snap={snap} />;
 }

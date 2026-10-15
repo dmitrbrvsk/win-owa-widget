@@ -1,5 +1,6 @@
 // Fluent-style line icons, 24px grid.
 const P: Record<string, string> = {
+  lock: '<rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"/>',
   search: '<circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/>',
   refresh: '<path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4v5h-5"/>',
   // A cog with teeth: the former circle-with-rays read as a sun, i.e. a theme switch.

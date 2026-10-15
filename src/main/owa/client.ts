@@ -63,6 +63,7 @@ export interface OwaClientOptions {
   username?: string;
   password?: string;
   trustedFingerprint?: string;
+  onConnectionStage?: (stage: 'server' | 'certificate' | 'auth') => void;
 }
 
 const USER_AGENT =
@@ -105,7 +106,10 @@ export class OwaClient {
   }
 
   private send(req: HttpRequest): Promise<HttpResponse> {
-    return sendRequest(this.ses, req, { host: this.host, port: this.port, origin: this.origin, username: this.opts.username, password: this.opts.password }, this.cert);
+    return sendRequest(this.ses, { ...req, onResponse: () => {
+      this.opts.onConnectionStage?.('server');
+      this.opts.onConnectionStage?.('certificate');
+    } }, { host: this.host, port: this.port, origin: this.origin, username: this.opts.username, password: this.opts.password }, this.cert);
   }
 
   private url(path: string) {
@@ -116,7 +120,7 @@ export class OwaClient {
 
   async authenticate(): Promise<void> {
     if (!this.authInFlight) {
-      this.authInFlight = this.doAuthenticate().finally(() => (this.authInFlight = undefined));
+      this.authInFlight = this.doAuthenticate().then(() => { this.opts.onConnectionStage?.('auth'); }).finally(() => (this.authInFlight = undefined));
     }
     return this.authInFlight;
   }

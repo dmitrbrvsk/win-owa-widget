@@ -1,5 +1,9 @@
 // `window.owa` comes from the preload script. In a plain browser (`vite` without Electron, used
 // for UI work and screenshots) a mock with demo meetings stands in.
+import { ParticipantGroupBook, participantGroupAccount } from '../shared/participantGroups';
+import { privateEvent } from '../shared/privacy';
+import { initialDiagnostics, supportReport } from '../shared/diagnostics';
+import type { ConnectionDiagnostics } from '../shared/types';
 import type { OwaApi, Snapshot, AppSettings } from '../shared/types';
 import { demoAvailability, demoDetails, demoEvents, demoPeople, demoStatsEvents } from '../main/demo';
 
@@ -24,23 +28,37 @@ function mockApi(): OwaApi {
     language: (params.get('lang') as AppSettings['language']) ?? 'ru',
     popupSize: 'regular',
     welcomeDone: true,
+    privacyMode: false,
   };
   let snap: Snapshot = {
     events: demoEvents(),
     sync: { phase: 'ok', lastSuccess: new Date().toISOString() },
     settings,
     demo: true,
-    version: '1.1.0',
+    version: '1.2.0',
     taskbarLight: false,
     logPath: 'C:\\Users\\you\\AppData\\Roaming\\OWA Widget\\logs\\owa-widget.log',
     noteIds: [],
+    participantGroups: { account: participantGroupAccount(settings.account), groups: [] },
   };
+  const groups = new ParticipantGroupBook();
+  let diagnostic: ConnectionDiagnostics | undefined;
+  const progress = new Set<(d: ConnectionDiagnostics) => void>();
+  const view = (): Snapshot => ({ ...snap, events: snap.settings.privacyMode ? snap.events.map(e => privateEvent(e, snap.settings.language === 'en' ? 'en' : 'ru')) : snap.events, noteIds: snap.settings.privacyMode ? [] : snap.noteIds, participantGroups: { account: participantGroupAccount(snap.settings.account), groups: snap.settings.privacyMode ? [] : groups.list(participantGroupAccount(snap.settings.account)) } });
   const notes = new Map<string, string>();
   if (params.get('error') === 'network') snap.sync = { phase: 'error', error: 'Сервер недоступен — возможно, выключен VPN', errorKind: 'network', lastSuccess: new Date(Date.now() - 42 * 60_000).toISOString() };
   const listeners = new Set<(s: Snapshot) => void>();
-  const emit = () => listeners.forEach((l) => l(snap));
+  const emit = () => listeners.forEach((l) => l(view()));
+  window.addEventListener('hashchange', emit);
   return {
-    getSnapshot: async () => snap,
+    getSnapshot: async () => view(),
+    setPrivacyMode: async (enabled) => { snap = { ...snap, settings: { ...snap.settings, privacyMode: enabled } }; emit(); },
+    saveParticipantGroup: async (account, input) => { const group = groups.save(account, input, () => crypto.randomUUID()); emit(); return group; },
+    deleteParticipantGroup: async (account, id) => { groups.remove(account, id); emit(); },
+    onConnectionProgress: cb => (progress.add(cb), () => progress.delete(cb)),
+    getSupportReport: async () => supportReport(snap.version, 'browser', 'browser', true, snap.sync, diagnostic),
+    checkForUpdates: async () => ({ status: params.get('update') === 'available' ? 'available' : 'current', currentVersion: snap.version, latestVersion: params.get('update') === 'available' ? '1.3.0' : snap.version }),
+    openUpdatePage: async () => {},
     onSnapshot: (cb) => (listeners.add(cb), () => listeners.delete(cb)),
     syncNow: async () => {
       snap = { ...snap, sync: { phase: 'ok', lastSuccess: new Date().toISOString() } };
@@ -88,7 +106,12 @@ function mockApi(): OwaApi {
       emit();
       return { passwordRemoved: false };
     },
-    testConnection: async () => ({ ok: true, message: 'Подключено. Встреч на неделю: 12', eventCount: 12 }),
+    testConnection: async () => {
+      diagnostic = initialDiagnostics();
+      for (const stage of Object.keys(diagnostic.stages) as (keyof ConnectionDiagnostics['stages'])[]) diagnostic.stages[stage] = 'skipped';
+      progress.forEach(cb => cb(diagnostic!));
+      return { ok: true, message: 'Демо-режим: подключение не проверялось', diagnostics: diagnostic };
+    },
     trustCertificate: async () => {},
     forgetCertificate: async () => {},
     clearCache: async () => {},

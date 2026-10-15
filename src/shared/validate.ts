@@ -52,6 +52,7 @@ export function sanitizeSettings(raw: unknown, base: AppSettings): AppSettings {
     ...workday(r, base),
     notifyChanges: bool(r.notifyChanges, base.notifyChanges),
     reminderStyle: oneOf(r.reminderStyle, REMINDER_STYLES, base.reminderStyle),
+    privacyMode: bool(r.privacyMode, base.privacyMode),
     welcomeDone: bool(r.welcomeDone, base.welcomeDone),
     launchAtLogin: bool(r.launchAtLogin, base.launchAtLogin),
     theme: oneOf(r.theme, THEMES, base.theme),

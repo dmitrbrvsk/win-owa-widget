@@ -10,6 +10,13 @@ function subscribe<T>(channel: string, cb: (payload: T) => void) {
 }
 
 const api: OwaApi = {
+  setPrivacyMode: (enabled) => ipcRenderer.invoke(IPC.setPrivacyMode, enabled),
+  saveParticipantGroup: (account, input) => ipcRenderer.invoke(IPC.saveParticipantGroup, account, input),
+  deleteParticipantGroup: (account, id) => ipcRenderer.invoke(IPC.deleteParticipantGroup, account, id),
+  onConnectionProgress: (cb) => subscribe(IPC.connectionProgress, cb),
+  getSupportReport: () => ipcRenderer.invoke(IPC.getSupportReport),
+  checkForUpdates: () => ipcRenderer.invoke(IPC.checkForUpdates),
+  openUpdatePage: () => ipcRenderer.invoke(IPC.openUpdatePage),
   getSnapshot: () => ipcRenderer.invoke(IPC.getSnapshot),
   onSnapshot: (cb) => subscribe(IPC.snapshot, cb),
   syncNow: () => ipcRenderer.invoke(IPC.syncNow),

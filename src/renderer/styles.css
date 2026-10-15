@@ -2128,3 +2128,38 @@ textarea.field {
   margin-left: 6px;
   opacity: 0.75;
 }
+
+/* Saved participant groups share the free-time form's spacing and Fluent controls. */
+.av-groups { margin: 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); flex-shrink: 0; }
+.av-groups-row, .av-group-editor, .av-group-delete { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.av-groups-row > label { font-weight: 600; margin-right: 4px; }
+.av-group-select { width: auto; min-width: 200px; max-width: 300px; flex: 1; }
+.av-group-hint { margin-top: 7px; }
+.av-group-editor, .av-group-delete { margin-top: 12px; }
+.av-group-editor .field { flex: 1; min-width: 180px; }
+.av-group-status:empty { display: none; }
+.av-group-status { margin-top: 7px; }
+.private-calendar { height: 100%; padding: 18px; display: flex; flex-direction: column; gap: 14px; max-width: 760px; margin: 0 auto; }
+.privacy-banner { display: flex; align-items: flex-start; gap: 10px; }
+.privacy-banner .ico { flex-shrink: 0; color: var(--accent); margin-top: 2px; }
+.privacy-banner p { margin: 4px 0 0; }
+.private-calendar > .btn { align-self: flex-start; }
+.privacy-nav { display: flex; align-items: center; justify-content: space-between; }
+.private-events { min-height: 0; overflow-y: auto; }
+.private-event { display: flex; gap: 16px; align-items: center; margin-bottom: 8px; padding: 12px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 6px; }
+.private-event.cancelled { opacity: .55; text-decoration: line-through; }
+.private-event .tnum { flex-shrink: 0; font-size: 12px; }
+.connection-steps { list-style: none; padding: 0 16px 14px; margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.connection-step { display: grid; grid-template-columns: 24px 1fr; column-gap: 8px; align-items: center; padding: 9px; border: 1px solid var(--line); border-radius: 6px; }
+.connection-step small { grid-column: 2; opacity: .65; }
+.step-number { grid-row: span 2; height: 24px; display: grid; place-items: center; border: 1px solid currentColor; border-radius: 50%; font-size: 11px; }
+.connection-step.passed .step-number { color: var(--ok); }
+.connection-step.failed .step-number { color: var(--danger); }
+.connection-step.running .step-number { color: var(--accent); }
+.connection-step.skipped { opacity: .65; }
+.support-preview { padding: 0 16px 14px; }
+.support-preview pre { font: 11px/1.6 Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 280px; overflow-y: auto; }
+@media (max-width: 600px) { .connection-steps { grid-template-columns: 1fr; } }
+
+.privacy-banner > div { flex: 1; min-width: 0; }
+.privacy-banner > .icon-btn { flex: none; margin-top: -6px; }
