@@ -62,6 +62,8 @@ export class CalendarService extends EventEmitter {
   private inFlight?: Promise<void>;
   /** Wrong password latches automatic sync off, so a domain account is not locked out by retries. */
   private authLatched = false;
+  /** Recovery is a native decision, capped independently of cache/client rebuilds. */
+  private readonly authRecoveryGate = new RequestGate(1, 1, 30_000);
   /** The last certificate a server presented that Windows rejected (from sync or from a connection test). */
   private untrusted?: CertInfo;
   /** Demo mode only: meetings "created" in the form live here (no network), and survive the demo's reloads. */
@@ -162,6 +164,19 @@ export class CalendarService extends EventEmitter {
     } finally { release?.(); }
   }
 
+  /** A callback supplied only by the main process; renderer arguments cannot grant a retry. */
+  private async authorizeAuthenticationRetry(confirm?: () => Promise<boolean>): Promise<boolean> {
+    if (!this.authLatched) return false;
+    if (!confirm) throw new Error('Вход заблокирован после ошибки: подтвердите повторную попытку в настройках');
+    const release = this.authRecoveryGate.enter();
+    const generation = this.generation;
+    try {
+      if (!(await confirm())) throw new Error('Повторный вход отменен');
+      this.assertGeneration(generation);
+      return true;
+    } finally { release(); }
+  }
+
   private setSync(s: SyncState) {
     this.sync = s;
     this.emit('changed');
@@ -171,8 +186,7 @@ export class CalendarService extends EventEmitter {
    * Every sync, including one the person asked for, is skipped while the wrong-password latch is
    * set: a domain account locks out after a handful of failed logins, and "Обновить" (or a page
    * calling syncNow in a loop) must not be able to spend those attempts. The latch is cleared by
-   * changing the account settings, resetting the cache or trusting the certificate — that is, by
-   * the person doing something about the reason the login failed.
+   * an account update with native retry consent. Cache and certificate operations never clear it.
    */
   syncNow(reason: 'auto' | 'manual' | 'popup' = 'manual'): Promise<void> {
     if (this.inFlight) return this.inFlight;
@@ -209,7 +223,6 @@ export class CalendarService extends EventEmitter {
       // What moved, was cancelled or newly arrived since the list the widget showed a moment ago.
       const changes = diffEvents(before, this.events, new Date());
       if (changes.length) this.emit('changes', changes);
-      this.authLatched = false;
       saveEventCache(this.events, participantGroupAccount(this.settings.account));
       log.info(`sync: ok, ${events.length} events`);
       this.setSync({ phase: 'ok', lastSuccess: new Date().toISOString() });
@@ -551,7 +564,6 @@ export class CalendarService extends EventEmitter {
     log.info('cache: cleared on request');
     this.events = [];
     clearEventCache();
-    this.authLatched = false;
     this.emit('cacheCleared');
     this.emit('changed');
     void this.syncNow('manual');
@@ -568,7 +580,7 @@ export class CalendarService extends EventEmitter {
     return next && next !== serverKey(this.settings.account.serverUrl) ? next : null;
   }
 
-  async applySettings(update: SettingsUpdate): Promise<SaveResult> {
+  async applySettings(update: SettingsUpdate, confirmRetry?: () => Promise<boolean>): Promise<SaveResult> {
     const prev = this.settings;
     // Whatever the renderer sent is rebuilt field by field: types, enums and ranges are enforced here.
     // The certificate pin and hasPassword are copied from the current state, never from the page.
@@ -579,6 +591,8 @@ export class CalendarService extends EventEmitter {
       clean.settings.account.serverUrl = check.url.replace(/^https:\/\//, '');
     }
     const account = clean.settings.account;
+    const credentialsChanged = clean.password !== undefined || JSON.stringify({ ...prev.account, hasPassword: 0 }) !== JSON.stringify({ ...account, hasPassword: 0 });
+    const retryApproved = credentialsChanged ? await this.authorizeAuthenticationRetry(confirmRetry) : false;
     const key = serverKey(account.serverUrl);
     let hasPassword = prev.account.hasPassword;
     let passwordRemoved = false;
@@ -594,12 +608,12 @@ export class CalendarService extends EventEmitter {
     const next = { ...clean.settings, account: { ...account, hasPassword, useWindowsAuth: !(account.username && hasPassword) } };
     saveSettings(next);
     this.settings = next;
+    if (retryApproved) this.authLatched = false;
 
     const accountChanged =
       clean.password !== undefined || JSON.stringify({ ...prev.account, hasPassword: 0 }) !== JSON.stringify({ ...this.settings.account, hasPassword: 0 });
     if (accountChanged) {
       this.lastDiagnostics = undefined;
-      this.authLatched = false;
       this.events = [];
       try { clearEventCache(); } catch { log.warn('cache: could not remove the old account cache; owner check still applies'); }
       this.sync = { phase: this.settings.account.serverUrl ? 'idle' : 'notConfigured' };
@@ -614,11 +628,14 @@ export class CalendarService extends EventEmitter {
     return { passwordRemoved };
   }
 
-  async testConnection(update: SettingsUpdate, progress?: (d: ConnectionDiagnostics) => void): Promise<ConnectionTestResult> {
+  async testConnection(update: SettingsUpdate, progress?: (d: ConnectionDiagnostics) => void, confirmRetry?: () => Promise<boolean>): Promise<ConnectionTestResult> {
     const release = this.testGate.enter();
-    try { return await this.doTestConnection(update, progress); } finally { release(); }
+    try {
+      const retryApproved = await this.authorizeAuthenticationRetry(confirmRetry);
+      return await this.doTestConnection(update, progress, retryApproved);
+    } finally { release(); }
   }
-  private async doTestConnection(update: SettingsUpdate, progress?: (d: ConnectionDiagnostics) => void): Promise<ConnectionTestResult> {
+  private async doTestConnection(update: SettingsUpdate, progress?: (d: ConnectionDiagnostics) => void, retryApproved = false): Promise<ConnectionTestResult> {
     const generation = this.generation;
     const diagnostics = initialDiagnostics();
     const emit = () => { if (generation !== this.generation) return; this.lastDiagnostics = structuredClone(diagnostics); progress?.(structuredClone(diagnostics)); };
@@ -635,6 +652,7 @@ export class CalendarService extends EventEmitter {
     const a = clean.settings.account;
     let client: OwaClient | undefined;
     try {
+      if (this.authLatched && !retryApproved) throw new OwaError('auth', 'Вход заблокирован после ошибки: подтвердите повторную попытку в настройках');
       const password = clean.password !== undefined ? clean.password || undefined : loadPassword(serverKey(a.serverUrl));
       client = new OwaClient({
         serverUrl: a.serverUrl,
@@ -651,10 +669,21 @@ export class CalendarService extends EventEmitter {
       this.assertGeneration(generation);
       passed('calendar');
       log.info(`test: ok, ${events.length} events`);
+      // A successful probe using saved credentials can resume sync. Unsaved credentials cannot:
+      // the active client would otherwise retry the old password without another native decision.
+      if (retryApproved && clean.password === undefined && participantGroupAccount(a) === participantGroupAccount(this.settings.account)) {
+        this.authLatched = false;
+        this.rebuildClient();
+        void this.syncNow('manual');
+      }
       return { ok: true, message: `Подключено. Встреч на неделю: ${events.length}`, eventCount: events.length, diagnostics };
     } catch (e) {
       if (generation !== this.generation) return { ok: false, message: 'Аккаунт изменился: повторите проверку' };
       if (e instanceof OwaError && e.cert) this.untrusted = e.cert;
+      if (e instanceof OwaError && e.kind === 'auth') {
+        this.authLatched = true;
+        this.setSync({ phase: 'error', lastSuccess: this.sync.lastSuccess, ...describe(e) });
+      }
       log.warn(`test: failed: ${describeError(e)}`);
       const d = describe(e);
       diagnostics.errorKind = d.errorKind;
@@ -690,7 +719,6 @@ export class CalendarService extends EventEmitter {
     this.untrusted = undefined;
     this.settings = { ...this.settings, account: { ...this.settings.account, trustedCertFingerprint: pending.fingerprint, trustedCertHost: pending.host } };
     saveSettings(this.settings);
-    this.authLatched = false;
     this.rebuildClient();
     this.emit('changed');
     void this.syncNow('manual');

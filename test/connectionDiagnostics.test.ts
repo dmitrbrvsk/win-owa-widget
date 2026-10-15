@@ -5,19 +5,19 @@ import { ParticipantGroupBook } from '../src/shared/participantGroups';
 import { NoteBook } from '../src/shared/notes';
 import { supportReport } from '../src/shared/diagnostics';
 import { OwaError } from '../src/main/owa/errors';
-const network = vi.hoisted(() => ({ stages: [] as DiagnosticStage[], error: undefined as unknown, persist: true, dispose: vi.fn() }));
+const network = vi.hoisted(() => ({ stages: [] as DiagnosticStage[], error: undefined as unknown, persist: true, dispose: vi.fn(), fetch: vi.fn() }));
 vi.mock('../src/main/log', () => ({ log: { info: vi.fn(), warn: vi.fn() }, describeError: () => 'redacted' }));
 vi.mock('../src/main/store', () => ({ loadSettings: () => structuredClone(DEFAULT_SETTINGS), loadNotes: () => new NoteBook(), loadParticipantGroups: () => new ParticipantGroupBook(), loadEventCache: () => [], loadPassword: () => undefined, saveSettings: vi.fn(), saveParticipantGroups: () => network.persist, saveNotes: vi.fn(), saveEventCache: vi.fn(), clearEventCache: vi.fn(), savePassword: vi.fn() }));
 vi.mock('../src/main/owa/http', () => ({ OwaError }));
 vi.mock('../src/main/owa/client', () => ({ OwaClient: class {
   host = 'PRIVATE_SERVER';
   constructor(private opts: { onConnectionStage?: (s: DiagnosticStage) => void }) {}
-  async fetchCalendarView() { for (const stage of network.stages) this.opts.onConnectionStage?.(stage); if (network.error) throw network.error; return []; }
+  async fetchCalendarView() { network.fetch(); for (const stage of network.stages) this.opts.onConnectionStage?.(stage); if (network.error) throw network.error; return []; }
   dispose() { network.dispose(); }
 } }));
 import { CalendarService } from '../src/main/calendarService';
 const update = (): SettingsUpdate => ({ settings: structuredClone(DEFAULT_SETTINGS) });
-beforeEach(() => { network.stages = []; network.error = undefined; network.persist = true; network.dispose.mockClear(); });
+beforeEach(() => { network.stages = []; network.error = undefined; network.persist = true; network.dispose.mockClear(); network.fetch.mockClear(); });
 describe('connection stages', () => {
   it('reports real progress, calendar success, and disposes the test session', async () => {
     network.stages = ['server', 'certificate', 'auth'];
@@ -58,4 +58,15 @@ it('switches privacy without changing account settings and broadcasts it', () =>
   const service = new CalendarService(false); const before = structuredClone(service.settings.account); const changed = vi.fn(); service.on('changed', changed);
   service.setPrivacyMode(true); expect(service.settings.privacyMode).toBe(true); expect(service.settings.account).toEqual(before); expect(changed).toHaveBeenCalledOnce();
   expect(() => service.setPrivacyMode('true')).toThrow();
+});
+
+it.each([false, true])('successful retry resumes only saved credentials (unsaved=%s)', async unsaved => {
+  const service = new CalendarService(false); network.error = new OwaError('auth', 'Rejected', 401);
+  await service.syncNow(); expect(network.fetch).toHaveBeenCalledOnce();
+  network.error = undefined;
+  const candidate = { ...update(), ...(unsaved ? { password: 'synthetic-correct-password' } : {}) };
+  expect((await service.testConnection(candidate, undefined, async () => true)).ok).toBe(true);
+  await service.syncNow();
+  expect(network.fetch).toHaveBeenCalledTimes(unsaved ? 2 : 3);
+  expect(service.sync.phase).toBe(unsaved ? 'error' : 'ok');
 });

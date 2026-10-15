@@ -269,10 +269,10 @@ describe('the gate holds for changes and cancellations too', () => {
     expect(calls).toEqual({ confirm: 1, deliver: 0 });
   });
 
-  it('does not ask when nobody would be told', async () => {
+  it('confirms changes even when nobody would be told', async () => {
     const { gate, calls, op } = setup();
     expect(await gate.run(async () => op(0))).toEqual({ status: 'updated', invited: 0 });
-    expect(calls).toEqual({ confirm: 0, deliver: 1 });
+    expect(calls).toEqual({ confirm: 1, deliver: 1 });
   });
 
   it('runs one at a time, whatever the operation is', async () => {

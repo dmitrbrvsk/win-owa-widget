@@ -697,6 +697,20 @@ async function confirmServerChange(host: string, parent?: BrowserWindow): Promis
   return answer === 1;
 }
 
+/** Recovery can spend another domain login attempt; only a native answer authorizes it. */
+async function confirmAuthenticationRetry(parent?: BrowserWindow): Promise<boolean> {
+  const ru = uiLang() !== 'en';
+  return (await askNative({
+    type: 'warning', title: 'OWA Widget',
+    message: ru ? 'Повторить вход в Exchange?' : 'Retry signing in to Exchange?',
+    detail: ru
+      ? 'Предыдущий вход завершился ошибкой. Проверьте логин и пароль: повторные ошибки могут заблокировать учетную запись компании. Если вы не запрашивали повторный вход, нажмите «Отмена».'
+      : 'The previous sign-in failed. Check your credentials: repeated failures can lock your company account. If you did not request another sign-in, press Cancel.',
+    buttons: ru ? ['Отмена', 'Повторить вход'] : ['Cancel', 'Retry sign-in'],
+    defaultId: 0, cancelId: 0, noLink: true,
+  }, parent)) === 1;
+}
+
 /** Trusting a certificate is a decision for the person, so it is asked in a native dialog the page cannot fake or click. */
 async function confirmTrustCertificate(parent?: BrowserWindow): Promise<boolean> {
   const pending = service.pendingCertificate();
@@ -819,14 +833,14 @@ function registerIpc() {
     if (next && !(await confirmServerChange(next, BrowserWindow.fromWebContents(e.sender) ?? undefined))) {
       throw new Error('Смена сервера отменена: адрес не изменён');
     }
-    return service.applySettings(update as SettingsUpdate);
+    return service.applySettings(update as SettingsUpdate, () => confirmAuthenticationRetry(BrowserWindow.fromWebContents(e.sender) ?? undefined));
   });
   handle(IPC.testConnection, async (e, update) => {
     const next = service.serverChangeOf(update);
     if (next && !(await confirmServerChange(next, BrowserWindow.fromWebContents(e.sender) ?? undefined))) {
       return { ok: false, message: 'Проверка отменена: подключение к новому серверу не подтверждено' };
     }
-    return service.testConnection(update as SettingsUpdate, progress => { if (!e.sender.isDestroyed()) e.sender.send(IPC.connectionProgress, progress); });
+    return service.testConnection(update as SettingsUpdate, progress => { if (!e.sender.isDestroyed()) e.sender.send(IPC.connectionProgress, progress); }, () => confirmAuthenticationRetry(BrowserWindow.fromWebContents(e.sender) ?? undefined));
   });
   handle(IPC.trustCertificate, async (e, fp) => {
     if (!isFingerprint(fp)) throw new Error('Недопустимый отпечаток');

@@ -2,7 +2,7 @@
 //   1. one request at a time (a double click or a flooding page is refused, not queued);
 //   2. validation of everything the window sent (`parseCreateMeeting`);
 //   3. rate limits (meetings and recipients per hour);
-//   4. a native confirmation built from the validated data, when invitations would go out: the page
+//   4. a native confirmation built from the validated data, for every calendar write: the page
 //      cannot click it, so a compromised window cannot send invitations by itself;
 //   5. only then the server is called.
 // It has no Electron imports: the dialog and the delivery are handed in, so the order above is tested.
@@ -47,7 +47,7 @@ export class SlidingWindow {
 
 /** One thing to do once it has been validated: who would be told, how to ask, and how to do it. */
 export interface Operation {
-  /** How many people the server would mail. 0 means no confirmation is needed. */
+  /** How many people the server would mail. 0 still requires confirmation: a private write can introduce external links. */
   recipients: number;
   confirm(): Promise<boolean>;
   deliver(): Promise<CreateMeetingResult>;
@@ -56,7 +56,7 @@ export interface Operation {
 export interface GateDeps {
   /** Shows the native dialog for what will be sent; true only when the person pressed "Send". */
   confirm(meeting: CreateMeetingInput): Promise<boolean>;
-  /** Talks to the server. Called only after validation, limits and (when needed) confirmation. */
+  /** Talks to the server. Called only after validation, limits and confirmation. */
   deliver(meeting: CreateMeetingInput): Promise<void>;
   now?: () => number;
 }
@@ -100,7 +100,7 @@ export class MeetingGate {
    *   1. one at a time (a double click or a looping page is refused, not queued);
    *   2. `prepare` validates what the window sent and looks up whatever else is needed, inside the lock;
    *   3. rate limits;
-   *   4. the native confirmation, when anyone would be told;
+   *   4. the native confirmation, including personal appointments;
    *   5. the limits again, because the dialog was open for a while, and only then the server call.
    */
   async run(prepare: () => Promise<Operation>): Promise<CreateMeetingResult> {
@@ -110,12 +110,11 @@ export class MeetingGate {
       const op = await prepare();
       const count = op.recipients;
       this.checkLimits(count);
-      // Nobody to tell: the change stays in the person's own calendar, so there is nothing to confirm.
-      if (count > 0) {
-        if (!this.prompts.allows(this.now())) throw new Error('Слишком много запросов на отправку — подождите несколько минут');
-        this.prompts.take(this.now());
-        if (!(await op.confirm())) return { status: 'cancelled' };
-      }
+      // Even a personal appointment can add a URL to the browser allow-list after sync.
+      // No renderer-controlled calendar content becomes trusted without native consent.
+      if (!this.prompts.allows(this.now())) throw new Error('Слишком много запросов на отправку — подождите несколько минут');
+      this.prompts.take(this.now());
+      if (!(await op.confirm())) return { status: 'cancelled' };
       // Time passed while the dialog was open: the limits are checked again, and from here the send counts.
       this.checkLimits(count);
       this.meetings.take(this.now());

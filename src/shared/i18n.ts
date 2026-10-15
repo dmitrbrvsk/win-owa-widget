@@ -224,7 +224,7 @@ const ru = {
   logHint: 'Журнал работы: адреса запросов, коды ответов и ошибки. Паролей, cookie и содержимого встреч в нём нет.',
   openLog: 'Открыть папку с журналом',
   clearCache: 'Сбросить кэш',
-  clearCacheHint: 'Забывает сохранённый список встреч и сеанс на сервере, затем загружает всё заново. Пароль и настройки остаются.',
+  clearCacheHint: 'Удаляет сохраненный список встреч и сеанс на сервере. Пароль и настройки остаются. После ошибки входа нажмите «Проверить подключение» и подтвердите повторную попытку: сброс кеша ее не разрешает.',
   cacheCleared: 'Кэш сброшен, календарь загружается заново',
   // search
   search: 'Поиск',
@@ -632,7 +632,7 @@ const en: Dict = {
   logHint: 'Activity log: request addresses, response codes and errors. No passwords, cookies or meeting contents.',
   openLog: 'Open log folder',
   clearCache: 'Reset cache',
-  clearCacheHint: 'Forgets the saved meeting list and the server session, then loads everything again. Your password and settings stay.',
+  clearCacheHint: 'Forgets the saved meeting list and server session. Your password and settings stay. After a sign-in failure, use Test connection and confirm the retry; resetting the cache does not allow another login.',
   cacheCleared: 'Cache reset, reloading the calendar',
   search: 'Search',
   searchPlaceholder: 'Search meetings',

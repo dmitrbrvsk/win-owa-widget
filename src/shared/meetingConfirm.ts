@@ -64,18 +64,20 @@ export function meetingConfirmText(m: CreateMeetingInput, lang: ConfirmLang, tim
     // A series puts the meeting in every attendee's calendar many times: it is said before the list of them.
     ...(recurrenceText(m, lang, timeZone) ? [`${ru ? 'Повторяется' : 'Repeats'}: ${recurrenceText(m, lang, timeZone)}`] : []),
     '',
-    ru ? `Получат приглашение (${n}):` : `Will be invited (${n}):`,
+    n > 0 ? (ru ? `Получат приглашение (${n}):` : `Will be invited (${n}):`) : (ru ? 'Участников нет: встреча будет только в вашем календаре.' : 'No attendees: the appointment stays in your own calendar.'),
     ...listed,
     ...(rest > 0 ? [ru ? `… и ещё ${rest}` : `… and ${rest} more`] : []),
     '',
-    ru
+    n === 0
+      ? (ru ? 'Если вы не создавали эту встречу, нажмите «Отмена».' : 'If you did not create this appointment, press Cancel.')
+      : ru
       ? 'Приглашения уйдут от вашего имени сразу после нажатия «Отправить». Если вы не создавали эту встречу, нажмите «Отмена».'
       : 'The invitations go out in your name as soon as you press Send. If you did not create this meeting, press Cancel.',
   ];
   return {
-    message: ru ? `Отправить приглашение ${n} ${attendeesRu(n)}?` : `Send an invitation to ${n} ${n === 1 ? 'attendee' : 'attendees'}?`,
+    message: n === 0 ? (ru ? 'Добавить встречу в ваш календарь?' : 'Add the appointment to your calendar?') : ru ? `Отправить приглашение ${n} ${attendeesRu(n)}?` : `Send an invitation to ${n} ${n === 1 ? 'attendee' : 'attendees'}?`,
     detail: lines.join('\n'),
-    buttons: ru ? ['Отмена', 'Отправить'] : ['Cancel', 'Send'],
+    buttons: n === 0 ? (ru ? ['Отмена', 'Сохранить'] : ['Cancel', 'Save']) : ru ? ['Отмена', 'Отправить'] : ['Cancel', 'Send'],
   };
 }
 

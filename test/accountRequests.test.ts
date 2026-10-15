@@ -113,3 +113,17 @@ it('keeps existing notes intact when persistence throws during editing or cleari
   expect(() => service.clearNotes()).toThrow('Notes unavailable');
   expect(service.getNote(event.id)).toBe('Original note');
 });
+
+it('does not accept a credential update as an implicit retry after authentication fails', async () => {
+  const service = new CalendarService(false); const sync = service.syncNow();
+  wire.jobs[0].reject(new OwaError('auth', 'Rejected')); await sync;
+  await expect(service.applySettings({ settings: service.settings, password: 'synthetic-password' })).rejects.toThrow(/подтвердите/);
+  await service.clearCache(); await service.syncNow(); expect(wire.jobs).toHaveLength(1);
+});
+it('retains the latch when settings cannot be saved after native retry consent', async () => {
+  const service = new CalendarService(false); const sync = service.syncNow();
+  wire.jobs[0].reject(new OwaError('auth', 'Rejected')); await sync;
+  wire.settingsFail = true;
+  await expect(service.applySettings({ settings: service.settings, password: 'synthetic-password' }, async () => true)).rejects.toThrow('Disk full');
+  await service.clearCache(); await service.syncNow(); expect(wire.jobs).toHaveLength(1);
+});

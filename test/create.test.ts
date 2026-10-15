@@ -616,6 +616,12 @@ describe('XML tokenizer', () => {
 });
 
 describe('confirmation text', () => {
+  it.each(['ru', 'en'] as const)('describes a personal appointment without promising invitations (%s)', lang => {
+    const text = meetingConfirmText(meeting({ requiredAttendees: [], optionalAttendees: [] }), lang);
+    expect(text.buttons[1]).toBe(lang === 'ru' ? 'Сохранить' : 'Save');
+    expect(text.message).not.toMatch(/0|приглашение|invitation/);
+    expect(text.detail).toContain(lang === 'ru' ? 'Участников нет' : 'No attendees');
+  });
   it('says how many people get an invitation, in the right case', () => {
     const msg = (n: number) => meetingConfirmText(meeting({ requiredAttendees: Array.from({ length: n }, (_, i) => `u${i}@example.com`) }), 'ru').message;
     expect(msg(1)).toBe('Отправить приглашение 1 участнику?');
@@ -755,10 +761,10 @@ describe('MeetingGate: nothing is sent without the person', () => {
     expect(calls.deliver).toHaveLength(0);
   });
 
-  it('saves a meeting nobody is invited to without asking', async () => {
+  it('confirms a personal appointment before saving it', async () => {
     const { gate, calls } = setup();
     expect(await gate.submit(input({ requiredAttendees: [], optionalAttendees: [] }))).toEqual({ status: 'created', invited: 0 });
-    expect(calls.confirm).toHaveLength(0);
+    expect(calls.confirm).toHaveLength(1);
     expect(calls.deliver).toHaveLength(1);
   });
 
