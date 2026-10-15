@@ -8,6 +8,7 @@ asar: true
 files:
   - dist/**/*
   - package.json
+  - LICENSE
   - "!**/*.map"
 # Switch off what an attacker could use to turn the app into a general-purpose Node runtime.
 electronFuses:

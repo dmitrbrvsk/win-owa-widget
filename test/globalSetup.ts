@@ -2,5 +2,5 @@
 // zone. Setting it here, before any worker starts, makes `yarn test` give the same result on every
 // machine, not only where the TZ environment variable happens to be set (as CI does).
 export default function setup() {
-  process.env.TZ = 'Europe/Moscow';
+    process.env.TZ = 'Europe/Moscow';
 }

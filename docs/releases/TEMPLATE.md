@@ -1,5 +1,7 @@
 **TODO: главное изменение и его польза для пользователя.**
 
+**Скачать:** [x64](https://github.com/dmitrbrvsk/win-owa-widget/releases/download/v<версия>/OWA-Widget-Setup-<версия>.exe) · [ARM64](https://github.com/dmitrbrvsk/win-owa-widget/releases/download/v<версия>/OWA-Widget-Setup-<версия>-arm64.exe) · [Portable](https://github.com/dmitrbrvsk/win-owa-widget/releases/download/v<версия>/OWA-Widget-<версия>-portable-x64.zip)
+
 ## Что изменилось
 
 - **TODO: новая возможность или исправление.** Что стало доступно или как изменилось поведение.

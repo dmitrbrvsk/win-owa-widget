@@ -1,5 +1,13 @@
 <h1 align="center">OWA Widget</h1>
 
+<p align="center">Русский · <a href="README.en.md">English</a></p>
+
+<p align="center">
+  <a href="https://github.com/dmitrbrvsk/win-owa-widget/actions/workflows/build.yml?query=branch%3Amaster"><img src="https://github.com/dmitrbrvsk/win-owa-widget/actions/workflows/build.yml/badge.svg?branch=master" alt="Build master"></a>
+  <a href="https://github.com/dmitrbrvsk/win-owa-widget/releases/latest"><img src="https://img.shields.io/github/v/release/dmitrbrvsk/win-owa-widget" alt="Последний релиз"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="Лицензия MIT"></a>
+</p>
+
 <p align="center"><strong>Ближайшая встреча — рядом с часами Windows.</strong></p>
 <p align="center">Календарь Exchange в трее: расписание на день, напоминания<br>и подключение к звонку без открытия Outlook.</p>
 
@@ -11,6 +19,10 @@
 </p>
 
 <p align="center"><sub>Windows 10/11 · x64 и ARM64 · Русский / English · Без прав администратора</sub></p>
+
+**Совместимость:** корпоративный Exchange on-premises с OWA. Microsoft 365 / Exchange Online, современная авторизация OAuth и отдельные SSO-порталы не поддерживаются.
+
+**Степень проверки:** CI запускает тесты, собирает приложение и проверяет открытие окон на Windows. Вход, операции EWS и уведомления Windows требуют отдельной проверки в реальной рабочей среде — [подробности и ограничения](docs/GUIDE.md#общие-вопросы).
 
 <p align="center">
   <img src="docs/media/hero.png" width="1200" alt="OWA Widget: расписание, ближайшая встреча и кнопка подключения в светлой и темной темах">
@@ -160,8 +172,11 @@ yarn install --immutable
 yarn setup:electron
 yarn dev:demo     # вымышленные встречи, Exchange не нужен
 yarn typecheck
+yarn lint
 yarn test
 yarn build
 ```
 
 `yarn dev` запускает приложение с настоящим аккаунтом, `yarn dist` собирает установщики Windows и portable-архив. Для каждой версии нужен отдельный [текст изменений](docs/releases/README.md). Подробности: [устройство проекта и выпуск](docs/GUIDE.md#для-разработчиков), [ручные тест-кейсы](docs/TEST-CASES.md).
+
+Правила проверки и форматирования кода: [docs/LINTING.md](docs/LINTING.md).

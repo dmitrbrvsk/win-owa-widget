@@ -31,6 +31,7 @@ jobs:
         run: node scripts/release-notes.mjs --check
       - run: corepack enable
       - run: yarn install --immutable
+      - run: yarn lint
       - run: yarn typecheck
       - run: TZ=Europe/Moscow yarn test
       # Audit direct and transitive dependencies, including devDependencies: Electron is one.

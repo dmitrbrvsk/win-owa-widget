@@ -1,0 +1,135 @@
+diff --git a/lib/compile.js b/lib/compile.js
+index dce69beb90ece5c3b0ca234a949418f9f34eedbc..d2d2c4f2273243388c6f90805975c805cea70b0c 100644
+--- a/lib/compile.js
++++ b/lib/compile.js
+@@ -4,7 +4,13 @@ const fill = require('fill-range');
+ const utils = require('./utils');
+ 
+ const compile = (ast, options = {}) => {
+-  const walk = (node, parent = {}) => {
++  const walk = (node, parent = {}, depth = 0) => {
++    if (depth >= 128) {
++      throw new RangeError('Brace AST nesting exceeds limit (128)');
++    }
++    if (node.value !== undefined && typeof node.value !== 'string') {
++      throw new TypeError('Expected a string AST value');
++    }
+     const invalidBlock = utils.isInvalidBrace(parent);
+     const invalidNode = node.invalid === true && options.escapeInvalid === true;
+     const invalid = invalidBlock === true || invalidNode === true;
+@@ -47,7 +53,7 @@ const compile = (ast, options = {}) => {
+ 
+     if (node.nodes) {
+       for (const child of node.nodes) {
+-        output += walk(child, node);
++        output += walk(child, node, depth + 1);
+       }
+     }
+ 
+diff --git a/lib/expand.js b/lib/expand.js
+index 35b2c41d6afdb8f0197959e26079f266e48370d3..ac012088862ea5b370c3dd6f276a4df54de03cec 100644
+--- a/lib/expand.js
++++ b/lib/expand.js
+@@ -33,13 +33,21 @@ const append = (queue = '', stash = '', enclose = false) => {
+ const expand = (ast, options = {}) => {
+   const rangeLimit = options.rangeLimit === undefined ? 1000 : options.rangeLimit;
+ 
+-  const walk = (node, parent = {}) => {
++  const walk = (node, parent = {}, depth = 0) => {
++    if (depth >= 128) {
++      throw new RangeError('Brace AST nesting exceeds limit (128)');
++    }
++    if (node.value !== undefined && typeof node.value !== 'string') {
++      throw new TypeError('Expected a string AST value');
++    }
+     node.queue = [];
+ 
+     let p = parent;
+     let q = parent.queue;
+ 
++    let parentDepth = 0;
+     while (p.type !== 'brace' && p.type !== 'root' && p.parent) {
++      if (++parentDepth >= 128) throw new RangeError('Brace AST nesting exceeds limit (128)');
+       p = p.parent;
+       q = p.queue;
+     }
+@@ -75,13 +83,18 @@ const expand = (ast, options = {}) => {
+     let queue = node.queue;
+     let block = node;
+ 
++    let blockDepth = 0;
+     while (block.type !== 'brace' && block.type !== 'root' && block.parent) {
++      if (++blockDepth >= 128) throw new RangeError('Brace AST nesting exceeds limit (128)');
+       block = block.parent;
+       queue = block.queue;
+     }
+ 
+     for (let i = 0; i < node.nodes.length; i++) {
+       const child = node.nodes[i];
++      if (child.value !== undefined && typeof child.value !== 'string') {
++        throw new TypeError('Expected a string AST value');
++      }
+ 
+       if (child.type === 'comma' && node.type === 'brace') {
+         if (i === 1) queue.push('');
+@@ -100,7 +113,7 @@ const expand = (ast, options = {}) => {
+       }
+ 
+       if (child.nodes) {
+-        walk(child, node);
++        walk(child, node, depth + 1);
+       }
+     }
+ 
+diff --git a/lib/parse.js b/lib/parse.js
+index 3a6988e629f52aee6609dc5ec290a5e9ff47cecb..e647b8dfa5d4e2f83ae59ced4be17225585ccdf1 100644
+--- a/lib/parse.js
++++ b/lib/parse.js
+@@ -144,6 +144,9 @@ const parse = (input, options = {}) => {
+ 
+     if (value === CHAR_LEFT_PARENTHESES) {
+       block = push({ type: 'paren', nodes: [] });
++      if (stack.length >= 128) {
++        throw new SyntaxError('Brace pattern nesting exceeds limit (128)');
++      }
+       stack.push(block);
+       push({ type: 'text', value });
+       continue;
+@@ -210,6 +213,9 @@ const parse = (input, options = {}) => {
+       };
+ 
+       block = push(brace);
++      if (stack.length >= 128) {
++        throw new SyntaxError('Brace pattern nesting exceeds limit (128)');
++      }
+       stack.push(block);
+       push({ type: 'open', value });
+       continue;
+diff --git a/lib/stringify.js b/lib/stringify.js
+index 8bcf872c31894f81a8c64d9202fd607e4fd7ea2b..ffdcbd8c61812a7fe9e334a35ef241b9960f37e6 100644
+--- a/lib/stringify.js
++++ b/lib/stringify.js
+@@ -3,7 +3,13 @@
+ const utils = require('./utils');
+ 
+ module.exports = (ast, options = {}) => {
+-  const stringify = (node, parent = {}) => {
++  const stringify = (node, parent = {}, depth = 0) => {
++    if (depth >= 128) {
++      throw new RangeError('Brace AST nesting exceeds limit (128)');
++    }
++    if (node.value !== undefined && typeof node.value !== 'string') {
++      throw new TypeError('Expected a string AST value');
++    }
+     const invalidBlock = options.escapeInvalid && utils.isInvalidBrace(parent);
+     const invalidNode = node.invalid === true && options.escapeInvalid === true;
+     let output = '';
+@@ -21,7 +27,7 @@ module.exports = (ast, options = {}) => {
+ 
+     if (node.nodes) {
+       for (const child of node.nodes) {
+-        output += stringify(child);
++        output += stringify(child, undefined, depth + 1);
+       }
+     }
+     return output;

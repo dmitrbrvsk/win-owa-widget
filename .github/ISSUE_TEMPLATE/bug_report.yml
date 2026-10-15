@@ -1,0 +1,115 @@
+name: Сообщить об ошибке
+description: Опишите проблему и условия, в которых она возникает.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Это публичное обращение
+        Не отправляйте пароли, cookies, токены, данные календаря и участников, внутренние адреса серверов или необработанные журналы. Проверьте также текст и снимки экрана.
+
+        Для диагностики можно приложить безопасный отчет: Настройки → Диагностика → «Скопировать отчет для поддержки». Перед отправкой просмотрите его содержимое. Полный журнал для первого обращения не нужен.
+  - type: input
+    id: app_version
+    attributes:
+      label: Версия OWA Widget
+      description: Указана внизу окна приложения.
+      placeholder: Например, 1.4.3
+    validations:
+      required: true
+  - type: input
+    id: windows_version
+    attributes:
+      label: Версия Windows
+      description: Укажите Windows 10 или 11 и, если знаете, номер сборки из команды winver.
+      placeholder: Например, Windows 11 24H2
+    validations:
+      required: true
+  - type: dropdown
+    id: architecture
+    attributes:
+      label: Архитектура компьютера
+      options:
+        - x64
+        - ARM64
+        - Не знаю
+    validations:
+      required: true
+  - type: dropdown
+    id: distribution
+    attributes:
+      label: Как запущено приложение
+      options:
+        - Установщик (.exe)
+        - Portable-архив (.zip)
+        - Из исходного кода или демо-режим
+        - Не знаю
+    validations:
+      required: true
+  - type: dropdown
+    id: authentication
+    attributes:
+      label: Способ входа
+      description: Не указывайте логин, пароль или адрес сервера.
+      options:
+        - Учетная запись Windows (Kerberos / NTLM)
+        - Логин и пароль через форму OWA
+        - Отдельный портал единого входа (ADFS / Azure AD)
+        - Демо-режим без подключения
+        - Не знаю
+    validations:
+      required: true
+  - type: dropdown
+    id: exchange_type
+    attributes:
+      label: Тип Exchange
+      description: Укажите только тип сервера, без названия компании и внутреннего адреса.
+      options:
+        - Локальный Exchange (on-premises)
+        - Exchange Online / Microsoft 365
+        - Демо-режим без подключения
+        - Не знаю
+    validations:
+      required: true
+  - type: input
+    id: exchange_version
+    attributes:
+      label: Версия Exchange, если известна
+      description: Только версия продукта; не добавляйте адрес сервера или другие внутренние сведения.
+      placeholder: Например, Exchange Server 2019 CU15
+  - type: textarea
+    id: steps
+    attributes:
+      label: Как повторить ошибку
+      description: Опишите действия по порядку. Используйте вымышленные имена и данные встреч.
+      placeholder: |
+        1. Откройте...
+        2. Нажмите...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Ожидаемый результат
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Что произошло
+      description: Текст ошибки или снимок экрана помогут, если из них удалены чувствительные данные.
+    validations:
+      required: true
+  - type: textarea
+    id: support_report
+    attributes:
+      label: Безопасный отчет для поддержки (необязательно)
+      description: Скопируйте из настроек и проверьте перед отправкой. Не вставляйте сюда полный журнал или сетевые ответы.
+      render: text
+  - type: checkboxes
+    id: privacy_check
+    attributes:
+      label: Проверка перед публикацией
+      options:
+        - label: Я проверил текст и вложения и удалил пароли, cookies, токены, данные календаря и участников, внутренние адреса и необработанные журналы.
+          required: true

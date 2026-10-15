@@ -1,63 +1,83 @@
 // Settings (plain JSON) and secrets / cache (encrypted with Windows DPAPI via safeStorage).
 import { app, safeStorage } from 'electron';
-import { statSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import type { AppSettings, CalendarEvent } from '../shared/types';
-import { checkServerUrl, serverKey } from '../shared/serverUrl';
-import { openSecret, sealSecret } from '../shared/secret';
+import {
+    existsSync,
+    mkdirSync,
+    readFileSync,
+    renameSync,
+    rmSync,
+    statSync,
+    writeFileSync,
+} from 'node:fs';
+import nodePath from 'node:path';
+
 import { NoteBook } from '../shared/notes';
 import { ParticipantGroupBook } from '../shared/participantGroups';
+import { openSecret, sealSecret } from '../shared/secret';
+import { checkServerUrl, serverKey } from '../shared/serverUrl';
+import { type AppSettings, type CalendarEvent } from '../shared/types';
 import { readStoredPin, sanitizeEvents, sanitizeSettings } from '../shared/validate';
+
 import { log } from './log';
 import { DEFAULT_SETTINGS } from './store.defaults';
 
 export { DEFAULT_SETTINGS };
 
 const dir = () => {
-  const d = app.getPath('userData');
-  if (!existsSync(d)) mkdirSync(d, { recursive: true });
-  return d;
+    const d = app.getPath('userData');
+    if (!existsSync(d)) mkdirSync(d, { recursive: true });
+    return d;
 };
 
 function writeAtomic(path: string, data: string | Buffer) {
-  const tmp = `${path}.tmp`;
-  writeFileSync(tmp, data, { mode: 0o600 });
-  renameSync(tmp, path);
+    const tmp = `${path}.tmp`;
+    writeFileSync(tmp, data, { mode: 0o600 });
+    renameSync(tmp, path);
 }
-
 
 const unreadableNotes = new Set<string>();
 
 function readBounded(path: string, maxBytes: number): Buffer {
-  const size = statSync(path);
-  if (!size.isFile() || size.size > maxBytes) throw new Error('Invalid profile file');
-  return readFileSync(path);
+    const size = statSync(path);
+    if (!size.isFile() || size.size > maxBytes) throw new Error('Invalid profile file');
+    return readFileSync(path);
 }
 
 /** No settings file yet: the very first launch, when the settings window should open to confirm the defaults. */
 export function isFirstRun(): boolean {
-  return !existsSync(join(dir(), 'settings.json'));
+    return !existsSync(nodePath.join(dir(), 'settings.json'));
 }
 
 export function loadSettings(): AppSettings {
-  try {
-    const raw = JSON.parse(readFileSync(join(dir(), 'settings.json'), 'utf8')) as unknown;
-    // The file is plain JSON that any program of this user can edit: read it through the same filter as the UI input.
-    const clean = sanitizeSettings(raw, DEFAULT_SETTINGS);
-    // A stored address that cannot be connected to (an e-mail typed into an older version, say) is
-    // replaced by the default rather than failing every sync until the person finds it.
-    if (clean.account.serverUrl && !checkServerUrl(clean.account.serverUrl).ok) {
-      log.warn(`settings: stored server address is not a server address, using the default instead`);
-      clean.account.serverUrl = DEFAULT_SETTINGS.account.serverUrl;
+    try {
+        const raw = JSON.parse(
+            readFileSync(nodePath.join(dir(), 'settings.json'), 'utf8'),
+        ) as unknown;
+        // The file is plain JSON that any program of this user can edit: read it through the same filter as the UI input.
+        const clean = sanitizeSettings(raw, DEFAULT_SETTINGS);
+        // A stored address that cannot be connected to (an e-mail typed into an older version, say) is
+        // replaced by the default rather than failing every sync until the person finds it.
+        if (clean.account.serverUrl && !checkServerUrl(clean.account.serverUrl).ok) {
+            log.warn(
+                `settings: stored server address is not a server address, using the default instead`,
+            );
+            clean.account.serverUrl = DEFAULT_SETTINGS.account.serverUrl;
+        }
+        return {
+            ...clean,
+            account: {
+                ...clean.account,
+                ...readStoredPin(raw),
+                hasPassword: !!loadPassword(serverKey(clean.account.serverUrl)),
+            },
+        };
+    } catch {
+        return { ...DEFAULT_SETTINGS, account: { ...DEFAULT_SETTINGS.account } };
     }
-    return { ...clean, account: { ...clean.account, ...readStoredPin(raw), hasPassword: !!loadPassword(serverKey(clean.account.serverUrl)) } };
-  } catch {
-    return { ...DEFAULT_SETTINGS, account: { ...DEFAULT_SETTINGS.account } };
-  }
 }
 
 export function saveSettings(s: AppSettings) {
-  writeAtomic(join(dir(), 'settings.json'), JSON.stringify(s, null, 2));
+    writeAtomic(nodePath.join(dir(), 'settings.json'), JSON.stringify(s, null, 2));
 }
 
 // Development on Linux without a keyring: allow Electron's plain-text backend so a password can be
@@ -65,15 +85,15 @@ export function saveSettings(s: AppSettings) {
 if (process.platform === 'linux' && !app.isPackaged) safeStorage.setUsePlainTextEncryption(true);
 
 function encrypt(text: string): Buffer | null {
-  return safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(text) : null;
+    return safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(text) : null;
 }
 
 function decrypt(buf: Buffer): string | null {
-  try {
-    return safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(buf) : null;
-  } catch {
-    return null;
-  }
+    try {
+        return safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(buf) : null;
+    } catch {
+        return null;
+    }
 }
 
 /**
@@ -81,111 +101,125 @@ function decrypt(buf: Buffer): string | null {
  * serverKey). For any other server, or none, there is no password.
  */
 export function loadPassword(server: string): string | undefined {
-  const p = join(dir(), 'secret.bin');
-  if (!server || !existsSync(p)) return undefined;
-  const plain = decrypt(readFileSync(p));
-  if (plain === null) return undefined;
-  const opened = openSecret(plain, server);
-  if (opened.kind === 'ok') return opened.password;
-  if (opened.kind === 'legacy') {
-    // Saved by a version before 0.2.0, which kept the bare password with no record of the server it
-    // was typed for. Binding it to whatever address is in settings.json now would hand it to a server
-    // the person never confirmed (that file is editable by anything running as this user), so it is
-    // forgotten instead and asked for again — once, on the way from a build nobody is running any more.
-    log.warn('password: stored by a version before 0.2.0 with no server of its own; forgotten, it has to be entered again');
-    rmSync(p, { force: true });
+    const p = nodePath.join(dir(), 'secret.bin');
+    if (!server || !existsSync(p)) return undefined;
+    const plain = decrypt(readFileSync(p));
+    if (plain === null) return undefined;
+    const opened = openSecret(plain, server);
+    if (opened.kind === 'ok') return opened.password;
+    if (opened.kind === 'legacy') {
+        // Saved by a version before 0.2.0, which kept the bare password with no record of the server it
+        // was typed for. Binding it to whatever address is in settings.json now would hand it to a server
+        // the person never confirmed (that file is editable by anything running as this user), so it is
+        // forgotten instead and asked for again — once, on the way from a build nobody is running any more.
+        log.warn(
+            'password: stored by a version before 0.2.0 with no server of its own; forgotten, it has to be entered again',
+        );
+        rmSync(p, { force: true });
+        return undefined;
+    }
     return undefined;
-  }
-  return undefined;
 }
 
 /** Returns whether the password is stored afterwards (false: cleared, or encryption unavailable). */
 export function savePassword(password: string | undefined, server: string): boolean {
-  const p = join(dir(), 'secret.bin');
-  if (!password || !server) {
-    rmSync(p, { force: true });
-    return false;
-  }
-  const enc = encrypt(sealSecret(password, server));
-  // No OS encryption available → never write the password in the clear.
-  if (!enc) return false;
-  writeAtomic(p, enc);
-  return true;
+    const p = nodePath.join(dir(), 'secret.bin');
+    if (!password || !server) {
+        rmSync(p, { force: true });
+        return false;
+    }
+    const enc = encrypt(sealSecret(password, server));
+    // No OS encryption available → never write the password in the clear.
+    if (!enc) return false;
+    writeAtomic(p, enc);
+    return true;
 }
 
 /** The last synced meetings, so the widget shows something offline and right after launch. */
 export function loadEventCache(account: string): CalendarEvent[] {
-  try {
-    const p = join(dir(), 'cache.bin');
-    if (!existsSync(p)) return [];
-    const text = decrypt(readBounded(p, 16 * 1024 * 1024));
-    if (!text) return [];
-    const raw: unknown = JSON.parse(text);
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return []; // Legacy cache has no owner: resync.
-    const value = raw as Record<string, unknown>;
-    return value.version === 2 && value.account === account ? sanitizeEvents(value.events) : [];
-  } catch {
-    log.warn('cache: could not read the optional cache; starting without it');
-    return [];
-  }
+    try {
+        const p = nodePath.join(dir(), 'cache.bin');
+        if (!existsSync(p)) return [];
+        const text = decrypt(readBounded(p, 16 * 1024 * 1024));
+        if (!text) return [];
+        const raw: unknown = JSON.parse(text);
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return []; // Legacy cache has no owner: resync.
+        const value = raw as Record<string, unknown>;
+        return value.version === 2 && value.account === account ? sanitizeEvents(value.events) : [];
+    } catch {
+        log.warn('cache: could not read the optional cache; starting without it');
+        return [];
+    }
 }
 
 export function saveEventCache(events: CalendarEvent[], account: string) {
-  const enc = encrypt(JSON.stringify({ version: 2, account, events }));
-  if (enc) writeAtomic(join(dir(), 'cache.bin'), enc);
+    const enc = encrypt(JSON.stringify({ version: 2, account, events }));
+    if (enc) writeAtomic(nodePath.join(dir(), 'cache.bin'), enc);
 }
 
 /** Removes the saved meeting list from the disk (the "reset cache" button). */
 export function clearEventCache() {
-  rmSync(join(dir(), 'cache.bin'), { force: true });
+    rmSync(nodePath.join(dir(), 'cache.bin'), { force: true });
 }
 
 /** The person's notes on meetings, encrypted with the Windows account's key like the saved password and the cache. */
 export function loadNotes(now: Date = new Date()): NoteBook {
-  let p: string | undefined;
-  try {
-    p = join(dir(), 'notes.bin');
-    if (!existsSync(p)) { unreadableNotes.delete(p); return new NoteBook(); }
-    const plain = decrypt(readBounded(p, 8 * 1024 * 1024));
-    if (!plain) throw new Error('Cannot decrypt notes');
-    const raw: unknown = JSON.parse(plain);
-    if (!raw || typeof raw !== 'object' || !Array.isArray((raw as { notes?: unknown }).notes)) throw new Error('Invalid notes');
-    const book = NoteBook.parse(raw, now);
-    unreadableNotes.delete(p);
-    return book;
-  } catch {
-    if (p) unreadableNotes.add(p);
-    log.warn('notes: could not read the file; original preserved and writes blocked until recovery');
-    return new NoteBook();
-  }
+    let p: string | undefined;
+    try {
+        p = nodePath.join(dir(), 'notes.bin');
+        if (!existsSync(p)) {
+            unreadableNotes.delete(p);
+            return new NoteBook();
+        }
+        const plain = decrypt(readBounded(p, 8 * 1024 * 1024));
+        if (!plain) throw new Error('Cannot decrypt notes');
+        const raw: unknown = JSON.parse(plain);
+        if (!raw || typeof raw !== 'object' || !Array.isArray((raw as { notes?: unknown }).notes))
+            throw new Error('Invalid notes');
+        const book = NoteBook.parse(raw, now);
+        unreadableNotes.delete(p);
+        return book;
+    } catch {
+        if (p) unreadableNotes.add(p);
+        log.warn(
+            'notes: could not read the file; original preserved and writes blocked until recovery',
+        );
+        return new NoteBook();
+    }
 }
 
 /** Returns false when nothing could be written: with no OS encryption the notes are never put on disk in the clear. */
 export function saveNotes(book: NoteBook): boolean {
-  const p = join(dir(), 'notes.bin');
-  if (unreadableNotes.has(p)) throw new Error('Файл заметок не удалось прочитать. Исходный файл сохранен: восстановите доступ и перезапустите приложение');
-  if (book.size === 0) {
-    rmSync(p, { force: true });
+    const p = nodePath.join(dir(), 'notes.bin');
+    if (unreadableNotes.has(p))
+        throw new Error(
+            'Файл заметок не удалось прочитать. Исходный файл сохранен: восстановите доступ и перезапустите приложение',
+        );
+    if (book.size === 0) {
+        rmSync(p, { force: true });
+        return true;
+    }
+    const enc = encrypt(JSON.stringify(book));
+    if (!enc) return false;
+    writeAtomic(p, enc);
     return true;
-  }
-  const enc = encrypt(JSON.stringify(book));
-  if (!enc) return false;
-  writeAtomic(p, enc);
-  return true;
 }
 
 /** Participant addresses are never written as plain JSON. */
 export function loadParticipantGroups(): ParticipantGroupBook {
-  try {
-    const path = join(dir(), 'groups.bin');
-    if (!existsSync(path) || statSync(path).size > 1024 * 1024) return new ParticipantGroupBook();
-    const plain = decrypt(readFileSync(path));
-    return plain ? ParticipantGroupBook.parse(JSON.parse(plain)) : new ParticipantGroupBook();
-  } catch { return new ParticipantGroupBook(); }
+    try {
+        const path = nodePath.join(dir(), 'groups.bin');
+        if (!existsSync(path) || statSync(path).size > 1024 * 1024)
+            return new ParticipantGroupBook();
+        const plain = decrypt(readFileSync(path));
+        return plain ? ParticipantGroupBook.parse(JSON.parse(plain)) : new ParticipantGroupBook();
+    } catch {
+        return new ParticipantGroupBook();
+    }
 }
 export function saveParticipantGroups(book: ParticipantGroupBook): boolean {
-  const enc = encrypt(JSON.stringify(book));
-  if (!enc) return false;
-  writeAtomic(join(dir(), 'groups.bin'), enc);
-  return true;
+    const enc = encrypt(JSON.stringify(book));
+    if (!enc) return false;
+    writeAtomic(nodePath.join(dir(), 'groups.bin'), enc);
+    return true;
 }
