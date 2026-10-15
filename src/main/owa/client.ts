@@ -75,7 +75,13 @@ const OWA_BUILD = '15.2.1748.10';
 const resets = new WeakMap<Session, Promise<void>>();
 function resetSession(session: Session, cookiesOnly = false): Promise<void> {
   const next = (resets.get(session) ?? Promise.resolve()).catch(() => undefined)
-    .then(() => session.clearStorageData(cookiesOnly ? { storages: ['cookies'] } : undefined));
+    .then(async () => {
+      if (!cookiesOnly) {
+        await session.clearAuthCache();
+        await session.closeAllConnections();
+      }
+      await session.clearStorageData(cookiesOnly ? { storages: ['cookies'] } : undefined);
+    });
   resets.set(session, next);
   void next.catch(() => undefined); // A caller sees the failure, never an unhandled background rejection.
   return next;

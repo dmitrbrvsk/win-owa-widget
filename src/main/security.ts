@@ -3,7 +3,7 @@
 import { app, session, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from 'electron';
 import { fileURLToPath } from 'node:url';
 import { join, resolve } from 'node:path';
-import { log } from './log';
+import { log, originForLog } from './log';
 
 const PAGE = resolve(join(__dirname, '../renderer/index.html'));
 
@@ -32,11 +32,11 @@ export function isTrustedUrl(raw: string): boolean {
 export function isTrustedSender(e: IpcMainEvent | IpcMainInvokeEvent): boolean {
   const frame = e.senderFrame;
   if (!frame || frame !== e.sender.mainFrame) {
-    log.warn(`ipc: rejected message from a sub-frame or disposed frame (${frame?.url ?? 'no frame'})`);
+    log.warn(`ipc: rejected message from a sub-frame or disposed frame (${frame ? originForLog(frame.url) : 'no frame'})`);
     return false;
   }
   if (!isTrustedUrl(frame.url)) {
-    log.warn(`ipc: rejected message from ${frame.url}; expected ${PAGE}`);
+    log.warn(`ipc: rejected message from ${originForLog(frame.url)}; expected ${PAGE}`);
     return false;
   }
   return true;
@@ -45,12 +45,12 @@ export function isTrustedSender(e: IpcMainEvent | IpcMainInvokeEvent): boolean {
 /** Windows never navigate away, never open child windows or webviews, and get no permissions. */
 export function hardenWebContents(contents: WebContents) {
   contents.setWindowOpenHandler(({ url }) => {
-    log.warn(`window.open blocked: ${url}`);
+    log.warn(`window.open blocked: ${originForLog(url)}`);
     return { action: 'deny' };
   });
   contents.on('will-navigate', (e, url) => {
     if (!isTrustedUrl(url)) {
-      log.warn(`navigation blocked: ${url}`);
+      log.warn(`navigation blocked: ${originForLog(url)}`);
       e.preventDefault();
     }
   });
@@ -58,7 +58,7 @@ export function hardenWebContents(contents: WebContents) {
   // Frames inside a page never navigate anywhere but our own page either.
   contents.on('will-frame-navigate', (e) => {
     if (!isTrustedUrl(e.url)) {
-      log.warn(`frame navigation blocked: ${e.url}`);
+      log.warn(`frame navigation blocked: ${originForLog(e.url)}`);
       e.preventDefault();
     }
   });

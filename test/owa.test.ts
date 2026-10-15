@@ -205,3 +205,18 @@ describe('payloads', () => {
     expect(windowsTimezoneFromIana('Asia/Novosibirsk')).toBe('N. Central Asia Standard Time');
   });
 });
+
+describe('CANARY header candidate scanning', () => {
+  it('retains header syntax, bounded suffixes and the other token locations', () => {
+    expect(extractCanaryFromHtml('request.setRequestHeader("X-OWA-CANARY", "header-token")')).toBe('header-token');
+    expect(extractCanaryFromHtml('X-OWA-CANARY' + 'x'.repeat(200) + '", "bounded-token"')).toBe('bounded-token');
+    expect(extractCanaryFromHtml('X-OWA-CANARY' + 'x'.repeat(201) + '", "too-far"')).toBeUndefined();
+    expect(extractCanaryFromHtml('<meta name="canary" content="meta-token">')).toBe('meta-token');
+    expect(extractCanaryFromHtml('<body data-canary="attribute-token">')).toBe('attribute-token');
+  });
+  it('handles many repeated keywords with a trailing quote in bounded time', () => {
+    const page = 'X-OWA-CANARY'.repeat(350_000) + '"';
+    const start = performance.now(); expect(extractCanaryFromHtml(page)).toBeUndefined();
+    expect(performance.now() - start).toBeLessThan(500);
+  });
+});

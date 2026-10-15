@@ -14,7 +14,8 @@ const CANARY_PATTERNS = [
   /name="canary"\s{1,32}value="([^"]{1,512})"/i,
   /name="canary" content="([^"]{1,512})"/i,
   /var\s{1,32}g_canary\s{0,32}=\s{0,32}"([^"]{1,512})"/i,
-  /X-OWA-CANARY[^"]{0,200}"\s{0,32},\s{0,32}"([^"]{1,512})"/i,
+  // Anchor at the closing quote; repeated keywords without a quote cannot trigger overlapping scans.
+  /"(?<=X-OWA-CANARY[^"]{0,200}")\s{0,32},\s{0,32}"([^"]{1,512})"/i,
   /data-canary="([^"]{1,512})"/i,
   /canary:\s{0,32}'([^']{1,512})'/i,
 ];

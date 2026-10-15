@@ -21,6 +21,7 @@ interface FakeReply {
 /** The fake Exchange the mocked Chromium stack answers from: one scripted reply per request. */
 const srv = vi.hoisted(() => ({
   calls: [] as FakeCall[],
+  lifecycle: [] as string[],
   reply: (() => ({})) as (call: FakeCall) => FakeReply,
   canary: 'canary-1' as string | undefined,
 }));
@@ -52,6 +53,7 @@ vi.mock('electron', () => {
     abort(): void {}
     followRedirect(): void {}
     end(): void {
+      srv.lifecycle.push('request');
       setTimeout(() => {
         const call = { method: this.opts.method ?? 'GET', url: this.opts.url, body: this.sent };
         srv.calls.push(call);
@@ -70,7 +72,9 @@ vi.mock('electron', () => {
   }
 
   const ses = {
-    clearStorageData: () => Promise.resolve(),
+    clearStorageData: () => { srv.lifecycle.push('storage'); return Promise.resolve(); },
+    clearAuthCache: () => { srv.lifecycle.push('auth-cache'); return Promise.resolve(); },
+    closeAllConnections: () => { srv.lifecycle.push('connections'); return Promise.resolve(); },
     setUserAgent: () => {},
     allowNTLMCredentialsForDomains: () => {},
     setCertificateVerifyProc: () => {},
@@ -297,4 +301,14 @@ it('aborts an HTTP response already in progress', async () => {
   const checked = expect(request).rejects.toThrow(/Запрос отменен/);
   await new Promise(resolve => setTimeout(resolve, 0));
   controller.abort(); await checked;
+});
+
+it('clears HTTP authentication and pooled connections before a reused session sends a request', async () => {
+  const offset = srv.lifecycle.length;
+  const fresh = new OwaClient({ serverUrl: BASE, useWindowsAuth: true });
+  await fresh.authenticate();
+  const lifecycle = srv.lifecycle.slice(offset);
+  expect(lifecycle).toContain('auth-cache'); expect(lifecycle).toContain('connections');
+  expect(lifecycle.indexOf('auth-cache')).toBeLessThan(lifecycle.indexOf('request'));
+  expect(lifecycle.indexOf('connections')).toBeLessThan(lifecycle.indexOf('request'));
 });

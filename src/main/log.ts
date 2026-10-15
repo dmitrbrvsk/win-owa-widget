@@ -62,3 +62,11 @@ export function describeError(e: unknown): string {
   if (e instanceof Error) return `${e.name}: ${e.message}`;
   return String(e);
 }
+
+/** Blocked URLs can be meeting links with secrets in both the path and query. Keep only their origin. */
+export function originForLog(url: string): string {
+  try {
+    const u = new URL(url);
+    return u.protocol === 'http:' || u.protocol === 'https:' ? `${u.protocol}//${u.host}` : u.protocol;
+  } catch { return '<invalid url>'; }
+}
