@@ -4,6 +4,7 @@ import { ParticipantGroupBook, participantGroupAccount } from '../shared/partici
 import { privateEvent } from '../shared/privacy';
 import { initialDiagnostics, supportReport } from '../shared/diagnostics';
 import type { ConnectionDiagnostics } from '../shared/types';
+import { version as appVersion } from '../../package.json';
 import type { OwaApi, Snapshot, AppSettings } from '../shared/types';
 import { demoAvailability, demoDetails, demoEvents, demoPeople, demoStatsEvents } from '../main/demo';
 
@@ -35,7 +36,7 @@ function mockApi(): OwaApi {
     sync: { phase: 'ok', lastSuccess: new Date().toISOString() },
     settings,
     demo: true,
-    version: '1.2.0',
+    version: appVersion,
     taskbarLight: false,
     logPath: 'C:\\Users\\you\\AppData\\Roaming\\OWA Widget\\logs\\owa-widget.log',
     noteIds: [],
