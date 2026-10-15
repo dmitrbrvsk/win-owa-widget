@@ -663,8 +663,10 @@ let modalOpen = false;
 async function askNative(options: Electron.MessageBoxOptions, parent?: BrowserWindow): Promise<number> {
   if (modalOpen) throw new Error('Уже открыто окно подтверждения — ответьте на него');
   modalOpen = true;
+  const revision = service.accountRevision;
   try {
     const { response } = parent && !parent.isDestroyed() ? await dialog.showMessageBox(parent, options) : await dialog.showMessageBox(options);
+    if (revision !== service.accountRevision) throw new Error('Аккаунт изменился: повторите действие');
     return response;
   } finally {
     modalOpen = false;
@@ -788,7 +790,9 @@ function registerIpc() {
   handle(IPC.syncNow, () => service.syncNow('manual'));
   handle(IPC.getDetails, async (_e, id) => {
     if (service.settings.privacyMode) return { attendees: [] };
+    const revision = service.accountRevision;
     const details = await service.details(parseId(id));
+    if (revision !== service.accountRevision) throw new Error('Аккаунт изменился: откройте карточку заново');
     if (service.settings.privacyMode) return { attendees: [] };
     // The description is served to the window, which makes its links clickable: the same links, and
     // only those, may be opened afterwards.
@@ -1064,6 +1068,20 @@ void app.whenReady().then(async () => {
   refreshTray();
   service.on('changes', notifyChanges);
   service.on('cacheCleared', () => toldChanges.clear());
+  service.on('accountChanged', () => {
+    // No selected card, search result, reminder or draft from the previous identity stays on screen.
+    cancelPopupRelease();
+    pendingPrefill = null;
+    pendingCalendarSelection = null;
+    pendingReminder = null;
+    closeAllToasts();
+    for (const win of [popup, calendarWin, createWin, availabilityWin, statsWin, reminderWin]) {
+      if (win && !win.isDestroyed()) win.close();
+    }
+    openableLinks.clear();
+    linkedEvents = undefined;
+    reminders?.reset();
+  });
   readTaskbarTheme();
   nativeTheme.on('updated', readTaskbarTheme);
   service.on('settings', (prev, next) => {

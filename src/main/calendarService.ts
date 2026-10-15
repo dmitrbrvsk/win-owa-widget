@@ -57,6 +57,7 @@ export class CalendarService extends EventEmitter {
   readonly demo: boolean;
 
   private client?: OwaClient;
+  private generation = 0;
   private timer?: NodeJS.Timeout;
   private inFlight?: Promise<void>;
   /** Wrong password latches automatic sync off, so a domain account is not locked out by retries. */
@@ -92,9 +93,11 @@ export class CalendarService extends EventEmitter {
     this.settings = loadSettings();
     this.notes = demo ? new NoteBook() : loadNotes();
     this.groups = demo ? new ParticipantGroupBook() : loadParticipantGroups();
-    if (!demo) this.events = loadEventCache();
+    if (!demo) this.events = loadEventCache(participantGroupAccount(this.settings.account));
     if (!demo && !this.settings.account.serverUrl) this.sync = { phase: 'notConfigured' };
   }
+
+  get accountRevision(): number { return this.generation; }
 
   start() {
     this.rebuildClient();
@@ -109,6 +112,9 @@ export class CalendarService extends EventEmitter {
   }
 
   private rebuildClient() {
+    this.generation++;
+    this.inFlight = undefined;
+    this.untrusted = undefined;
     this.client?.dispose();
     this.client = undefined;
     const a = this.settings.account;
@@ -131,6 +137,31 @@ export class CalendarService extends EventEmitter {
     }
   }
 
+  /** A captured request may finish after settings changed. Neither its data nor its errors survive. */
+  private assertGeneration(generation: number) {
+    if (generation !== this.generation) throw new Error('Аккаунт изменился: повторите действие');
+  }
+
+  private async request<T>(call: (client: OwaClient) => Promise<T>, gate?: RequestGate): Promise<T> {
+    if (this.authLatched) throw new Error('Вход в Exchange не удался. Проверьте логин и пароль в настройках');
+    const client = this.client;
+    if (!client) throw new Error('Аккаунт не настроен');
+    const generation = this.generation;
+    const release = gate?.enter();
+    try {
+      const result = await call(client);
+      this.assertGeneration(generation);
+      return result;
+    } catch (error) {
+      this.assertGeneration(generation);
+      if (error instanceof OwaError && error.kind === 'auth') {
+        this.authLatched = true;
+        this.setSync({ phase: 'error', lastSuccess: this.sync.lastSuccess, ...describe(error) });
+      }
+      throw error;
+    } finally { release?.(); }
+  }
+
   private setSync(s: SyncState) {
     this.sync = s;
     this.emit('changed');
@@ -149,8 +180,9 @@ export class CalendarService extends EventEmitter {
     if (reason === 'popup' && this.sync.lastSuccess && Date.now() - Date.parse(this.sync.lastSuccess) < 60_000) {
       return Promise.resolve();
     }
-    this.inFlight = this.doSync().finally(() => (this.inFlight = undefined));
-    return this.inFlight;
+    const task = this.doSync().finally(() => { if (this.inFlight === task) this.inFlight = undefined; });
+    this.inFlight = task;
+    return task;
   }
 
   private async doSync() {
@@ -166,21 +198,23 @@ export class CalendarService extends EventEmitter {
     if (!this.client) this.rebuildClient();
     if (!this.client) return;
 
+    const generation = this.generation;
     this.setSync({ ...this.sync, phase: 'syncing' });
     try {
       const { start, end } = syncRange();
-      const events = await this.client.fetchCalendarView(start, end);
+      const events = await this.request(client => client.fetchCalendarView(start, end));
+      this.assertGeneration(generation);
       const before = this.events;
       this.events = events.sort((a, b) => a.start.localeCompare(b.start));
       // What moved, was cancelled or newly arrived since the list the widget showed a moment ago.
       const changes = diffEvents(before, this.events, new Date());
       if (changes.length) this.emit('changes', changes);
       this.authLatched = false;
-      saveEventCache(this.events);
+      saveEventCache(this.events, participantGroupAccount(this.settings.account));
       log.info(`sync: ok, ${events.length} events`);
       this.setSync({ phase: 'ok', lastSuccess: new Date().toISOString() });
     } catch (e) {
-      if (e instanceof OwaError && e.kind === 'auth') this.authLatched = true;
+      if (generation !== this.generation) return;
       if (e instanceof OwaError && e.cert) this.untrusted = e.cert;
       log.warn(`sync: failed: ${describeError(e)}`);
       this.setSync({ phase: 'error', lastSuccess: this.sync.lastSuccess, ...describe(e) });
@@ -196,13 +230,7 @@ export class CalendarService extends EventEmitter {
   async details(id: string): Promise<EventDetails> {
     const e = this.find(id);
     if (this.demo) return this.demoCreatedDetails.get(e.id) ?? demoDetails(e);
-    if (!this.client) throw new Error('Аккаунт не настроен');
-    const release = this.requestGate.enter();
-    try {
-      return await this.client.fetchDetails(e.id, e.changeKey);
-    } finally {
-      release();
-    }
+    return this.request(client => client.fetchDetails(e.id, e.changeKey), this.requestGate);
   }
 
   /**
@@ -221,18 +249,15 @@ export class CalendarService extends EventEmitter {
   async respond(id: string, action: RsvpAction, message?: string): Promise<void> {
     const e = this.find(id);
     if (!this.demo) {
-      if (!this.client) throw new Error('Аккаунт не настроен');
-      const release = this.requestGate.enter();
-      try {
-        await this.client.respond(e.id, e.changeKey, action, message);
-      } finally {
-        release();
-      }
+      await this.request(client => client.respond(e.id, e.changeKey, action, message), this.requestGate);
     }
     // Optimistic update; the next sync brings the server's truth (and a new ChangeKey).
     e.responseType = action === 'accept' ? 'accepted' : action === 'tentative' ? 'tentative' : 'declined';
     this.emit('changed');
-    if (!this.demo) setTimeout(() => void this.syncNow('manual'), 1500);
+    if (!this.demo) {
+      const generation = this.generation;
+      setTimeout(() => { if (generation === this.generation) void this.syncNow('manual'); }, 1500);
+    }
   }
 
   // ---------- Create a meeting ----------
@@ -249,15 +274,16 @@ export class CalendarService extends EventEmitter {
     if (!this.client) throw new Error('Аккаунт не настроен: укажите сервер в настройках');
     // After a wrong password the login is not tried again by itself (it could lock the domain account).
     if (this.authLatched) throw new Error('Вход в Exchange не удался. Проверьте логин и пароль в настройках');
+    const generation = this.generation;
     try {
-      await this.client.createMeeting(m);
+      await this.request(client => client.createMeeting(m));
     } catch (e) {
-      if (e instanceof OwaError && e.kind === 'auth') this.authLatched = true;
+      this.assertGeneration(generation);
       // The answer was lost: the meeting may exist, so the calendar is refreshed to show what is really there.
-      if (e instanceof OwaError && e.kind === 'network') void this.refreshAfterChange();
+      if (e instanceof OwaError && e.kind === 'network') void this.refreshAfterChange(generation);
       throw e;
     }
-    void this.refreshAfterChange();
+    void this.refreshAfterChange(generation);
   }
 
   participantGroupState(): ParticipantGroupState {
@@ -303,27 +329,28 @@ export class CalendarService extends EventEmitter {
   }
 
   getNote(id: string): string {
+    this.find(id);
     return this.notes.get(id);
   }
 
   /** Keeps the note on a meeting that is in the calendar; an empty text removes it. Not written when it cannot be encrypted. */
   setNote(id: string, text: string): void {
     const e = this.find(id);
-    const before = this.notes.get(id);
     const now = new Date();
-    this.notes.set(id, text, e.start, now);
-    this.notes.prune(now);
-    if (!this.demo && !saveNotes(this.notes)) {
-      this.notes.set(id, before, e.start, now);
-      throw new Error('Заметку нельзя сохранить: на этом компьютере недоступно шифрование Windows');
-    }
+    const next = NoteBook.parse(this.notes.toJSON(), now);
+    next.set(id, text, e.start, now);
+    next.prune(now);
+    if (!this.demo && !saveNotes(next)) throw new Error('Заметку нельзя сохранить: на этом компьютере недоступно шифрование Windows');
+    this.notes = next;
     this.emit('changed');
   }
 
   /** Deletes every note; returns how many there were. */
   clearNotes(): number {
-    const n = this.notes.clear();
-    if (!this.demo) saveNotes(this.notes);
+    const n = this.notes.size;
+    const next = new NoteBook();
+    if (!this.demo && !saveNotes(next)) throw new Error('Заметки нельзя удалить: недоступно шифрование Windows');
+    this.notes = next;
     this.emit('changed');
     return n;
   }
@@ -366,16 +393,18 @@ export class CalendarService extends EventEmitter {
       this.updateDemoMeeting(before, after);
       return;
     }
+    this.find(before.id);
     if (!this.client) throw new Error('Аккаунт не настроен: укажите сервер в настройках');
     if (this.authLatched) throw new Error('Вход в Exchange не удался. Проверьте логин и пароль в настройках');
+    const generation = this.generation;
     try {
-      await this.client.updateMeeting(before, after, fields);
+      await this.request(client => client.updateMeeting(before, after, fields));
     } catch (e) {
-      if (e instanceof OwaError && e.kind === 'auth') this.authLatched = true;
-      if (e instanceof OwaError && e.kind === 'network') void this.refreshAfterChange();
+      this.assertGeneration(generation);
+      if (e instanceof OwaError && e.kind === 'network') void this.refreshAfterChange(generation);
       throw e;
     }
-    void this.refreshAfterChange();
+    void this.refreshAfterChange(generation);
   }
 
   /** Calls a meeting off; everyone invited is told by the server. Already validated and confirmed. */
@@ -386,16 +415,18 @@ export class CalendarService extends EventEmitter {
       this.emit('changed');
       return;
     }
+    this.find(before.id);
     if (!this.client) throw new Error('Аккаунт не настроен: укажите сервер в настройках');
     if (this.authLatched) throw new Error('Вход в Exchange не удался. Проверьте логин и пароль в настройках');
+    const generation = this.generation;
     try {
-      await this.client.cancelMeeting(before.id, before.changeKey);
+      await this.request(client => client.cancelMeeting(before.id, before.changeKey));
     } catch (e) {
-      if (e instanceof OwaError && e.kind === 'auth') this.authLatched = true;
-      if (e instanceof OwaError && e.kind === 'network') void this.refreshAfterChange();
+      this.assertGeneration(generation);
+      if (e instanceof OwaError && e.kind === 'network') void this.refreshAfterChange(generation);
       throw e;
     }
-    void this.refreshAfterChange();
+    void this.refreshAfterChange(generation);
   }
 
   private updateDemoMeeting(before: MeetingBefore, after: EditMeetingInput) {
@@ -414,8 +445,9 @@ export class CalendarService extends EventEmitter {
   }
 
   /** A sync that is already running started before the change; wait for it, then load again. */
-  private async refreshAfterChange() {
+  private async refreshAfterChange(generation: number) {
     await this.inFlight?.catch(() => undefined);
+    if (generation !== this.generation) return;
     await this.syncNow('manual');
   }
 
@@ -458,9 +490,8 @@ export class CalendarService extends EventEmitter {
     if (this.demo) return demoPeople(query);
     if (!this.client || this.authLatched) return [];
     try {
-      return await this.client.resolveNames(query);
+      return await this.request(client => client.resolveNames(query));
     } catch (e) {
-      if (e instanceof OwaError && e.kind === 'auth') this.authLatched = true;
       log.warn(`resolve: failed: ${describeError(e)}`);
       return [];
     }
@@ -474,8 +505,7 @@ export class CalendarService extends EventEmitter {
     const release = this.availabilityGate.enter();
     try {
       if (this.demo) return demoAvailability(req);
-      if (!this.client) throw new Error('Аккаунт не настроен');
-      return await this.client.getAvailability(req.emails, new Date(req.start), new Date(req.end));
+      return await this.request(client => client.getAvailability(req.emails, new Date(req.start), new Date(req.end)));
     } catch (e) {
       // Counts and kinds only: the addresses the person typed never go to the log.
       log.warn(`availability: failed: ${describeError(e)}`);
@@ -500,9 +530,8 @@ export class CalendarService extends EventEmitter {
       if (!this.client) throw new Error('Аккаунт не настроен');
       // After a wrong password the login is not tried again by itself (it could lock the domain account).
       if (this.authLatched) throw new Error('Вход в Exchange не удался. Проверьте логин и пароль в настройках');
-      return await this.client.fetchCalendarView(new Date(req.start), new Date(req.end));
+      return await this.request(client => client.fetchCalendarView(new Date(req.start), new Date(req.end)));
     } catch (e) {
-      if (e instanceof OwaError && e.kind === 'auth') this.authLatched = true;
       // Counts and kinds only: what the period holds never goes to the log.
       log.warn(`stats: failed: ${describeError(e)}`);
       throw e;
@@ -517,14 +546,13 @@ export class CalendarService extends EventEmitter {
    * restarts empty, so what is loaded next is not announced as a flood of "new invitations".
    */
   async clearCache() {
-    // A sync that is running finishes first: its answer must not put the old list back.
-    await this.inFlight?.catch(() => undefined);
+    // Rebuilding aborts the old client and invalidates all of its outstanding results.
+    this.rebuildClient();
     log.info('cache: cleared on request');
     this.events = [];
     clearEventCache();
     this.authLatched = false;
     this.emit('cacheCleared');
-    this.rebuildClient(); // a new client starts with an empty session: cookies and storage are dropped
     this.emit('changed');
     void this.syncNow('manual');
   }
@@ -563,19 +591,21 @@ export class CalendarService extends EventEmitter {
       passwordRemoved = true;
       log.info('password removed: it belonged to another server');
     }
-    this.settings = { ...clean.settings, account: { ...account, hasPassword, useWindowsAuth: !(account.username && hasPassword) } };
-    saveSettings(this.settings);
+    const next = { ...clean.settings, account: { ...account, hasPassword, useWindowsAuth: !(account.username && hasPassword) } };
+    saveSettings(next);
+    this.settings = next;
 
     const accountChanged =
       clean.password !== undefined || JSON.stringify({ ...prev.account, hasPassword: 0 }) !== JSON.stringify({ ...this.settings.account, hasPassword: 0 });
     if (accountChanged) {
       this.lastDiagnostics = undefined;
       this.authLatched = false;
-      if (prev.account.serverUrl !== this.settings.account.serverUrl) {
-        this.events = [];
-        saveEventCache([]);
-      }
+      this.events = [];
+      try { clearEventCache(); } catch { log.warn('cache: could not remove the old account cache; owner check still applies'); }
+      this.sync = { phase: this.settings.account.serverUrl ? 'idle' : 'notConfigured' };
+      this.emit('cacheCleared');
       this.rebuildClient();
+      this.emit('accountChanged');
       void this.syncNow('manual');
     }
     if (prev.syncIntervalMinutes !== this.settings.syncIntervalMinutes) this.reschedule();
@@ -589,8 +619,9 @@ export class CalendarService extends EventEmitter {
     try { return await this.doTestConnection(update, progress); } finally { release(); }
   }
   private async doTestConnection(update: SettingsUpdate, progress?: (d: ConnectionDiagnostics) => void): Promise<ConnectionTestResult> {
+    const generation = this.generation;
     const diagnostics = initialDiagnostics();
-    const emit = () => { this.lastDiagnostics = structuredClone(diagnostics); progress?.(structuredClone(diagnostics)); };
+    const emit = () => { if (generation !== this.generation) return; this.lastDiagnostics = structuredClone(diagnostics); progress?.(structuredClone(diagnostics)); };
     const passed = (stage: DiagnosticStage) => {
       if (diagnostics.stages[stage] === 'passed') return;
       diagnostics.stages[stage] = 'passed';
@@ -617,10 +648,12 @@ export class CalendarService extends EventEmitter {
       log.info(`test: connecting to ${client.host}`);
       const now = new Date();
       const events = await client.fetchCalendarView(new Date(now.getFullYear(), now.getMonth(), now.getDate()), new Date(now.getTime() + 7 * 86_400_000));
+      this.assertGeneration(generation);
       passed('calendar');
       log.info(`test: ok, ${events.length} events`);
       return { ok: true, message: `Подключено. Встреч на неделю: ${events.length}`, eventCount: events.length, diagnostics };
     } catch (e) {
+      if (generation !== this.generation) return { ok: false, message: 'Аккаунт изменился: повторите проверку' };
       if (e instanceof OwaError && e.cert) this.untrusted = e.cert;
       log.warn(`test: failed: ${describeError(e)}`);
       const d = describe(e);

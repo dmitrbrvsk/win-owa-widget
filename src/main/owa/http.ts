@@ -26,6 +26,7 @@ export interface HttpRequest {
   headers?: Record<string, string>;
   body?: string;
   timeoutMs?: number;
+  signal?: AbortSignal;
   /** Response headers prove server reachability and TLS acceptance, even if the body later fails. */
   onResponse?: () => void;
 }
@@ -47,6 +48,7 @@ export interface CertState {
 
 export function sendRequest(ses: Session, req: HttpRequest, creds: CredentialPolicy, cert: CertState): Promise<HttpResponse> {
   return new Promise((resolve, reject) => {
+    if (req.signal?.aborted) { reject(new OwaError('other', 'Запрос отменен: аккаунт изменился')); return; }
     // Every request, not only a redirect, stays on the configured https origin: a login form that
     // names http:// or another port must not get the password.
     const refused = requestRefusal(req.url, creds.origin);
@@ -74,9 +76,11 @@ export function sendRequest(ses: Session, req: HttpRequest, creds: CredentialPol
 
     for (const [k, v] of Object.entries(req.headers ?? {})) request.setHeader(k, v);
 
+    const cleanup = () => { clearTimeout(timer); req.signal?.removeEventListener('abort', onAbort); };
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
+      cleanup();
       request.abort();
       reject(new OwaError('network', 'Сервер не ответил вовремя'));
     }, req.timeoutMs ?? 30_000);
@@ -84,9 +88,15 @@ export function sendRequest(ses: Session, req: HttpRequest, creds: CredentialPol
     const fail = (e: OwaError) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      cleanup();
       reject(e);
     };
+
+    const onAbort = () => {
+      fail(new OwaError('other', 'Запрос отменен: аккаунт изменился'));
+      request.abort();
+    };
+    req.signal?.addEventListener('abort', onAbort, { once: true });
 
     request.on('redirect', (status, _method, redirectUrl) => {
       req.onResponse?.();
@@ -144,7 +154,7 @@ export function sendRequest(ses: Session, req: HttpRequest, creds: CredentialPol
       res.on('end', () => {
         if (settled) return;
         settled = true;
-        clearTimeout(timer);
+        cleanup();
         log.info(`${tag}: HTTP ${res.statusCode}${redirects.length ? ` after ${redirects.length} redirect(s)` : ''}, ${size} bytes`);
         if (res.statusCode === 401 && foreignAuthHost) {
           reject(new OwaError('loginHost', `Сервер просит пароль для чужого хоста ${foreignAuthHost}`));

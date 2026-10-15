@@ -71,6 +71,16 @@ const USER_AGENT =
 const OWA_BUILD = '15.2.1748.10';
 
 
+// Reused partitions need ordered cleanup: an old dispose must finish before a new login begins.
+const resets = new WeakMap<Session, Promise<void>>();
+function resetSession(session: Session, cookiesOnly = false): Promise<void> {
+  const next = (resets.get(session) ?? Promise.resolve()).catch(() => undefined)
+    .then(() => session.clearStorageData(cookiesOnly ? { storages: ['cookies'] } : undefined));
+  resets.set(session, next);
+  void next.catch(() => undefined); // A caller sees the failure, never an unhandled background rejection.
+  return next;
+}
+
 export class OwaClient {
   readonly base: string;
   readonly host: string;
@@ -78,6 +88,8 @@ export class OwaClient {
   private readonly origin: string;
   private readonly port: number;
   private readonly ses: Session;
+  private readonly abort = new AbortController();
+  private readonly ready: Promise<void>;
   private readonly cert: CertState = {};
   private canary?: string;
   private folder?: FolderIdentifier;
@@ -95,7 +107,7 @@ export class OwaClient {
     // In-memory partition (no "persist:" prefix): cookies live only as long as the app runs. The
     // partition is reused, so a new client starts by clearing whatever the previous one left.
     this.ses = electronSession.fromPartition(opts.partition ?? 'owa', { cache: false });
-    void this.ses.clearStorageData();
+    this.ready = resetSession(this.ses);
     this.ses.setUserAgent(USER_AGENT, 'ru-RU,ru,en-US,en');
     configureSession(this.ses, this.host, { useWindowsAuth: opts.useWindowsAuth, trustedFingerprint: opts.trustedFingerprint }, this.cert);
   }
@@ -105,11 +117,17 @@ export class OwaClient {
     return this.cert.lastUntrusted;
   }
 
-  private send(req: HttpRequest): Promise<HttpResponse> {
-    return sendRequest(this.ses, { ...req, onResponse: () => {
+  private async send(req: HttpRequest): Promise<HttpResponse> {
+    await this.ready;
+    this.assertActive();
+    return sendRequest(this.ses, { ...req, signal: this.abort.signal, onResponse: () => {
       this.opts.onConnectionStage?.('server');
       this.opts.onConnectionStage?.('certificate');
     } }, { host: this.host, port: this.port, origin: this.origin, username: this.opts.username, password: this.opts.password }, this.cert);
+  }
+
+  private assertActive() {
+    if (this.abort.signal.aborted) throw new OwaError('other', 'Запрос отменен: аккаунт изменился');
   }
 
   private url(path: string) {
@@ -119,6 +137,7 @@ export class OwaClient {
   // ---------- Auth ----------
 
   async authenticate(): Promise<void> {
+    this.assertActive();
     if (!this.authInFlight) {
       this.authInFlight = this.doAuthenticate().then(() => { this.opts.onConnectionStage?.('auth'); }).finally(() => (this.authInFlight = undefined));
     }
@@ -126,13 +145,17 @@ export class OwaClient {
   }
 
   private async cookieCanary(): Promise<string | undefined> {
+    this.assertActive();
     const cookies = await this.ses.cookies.get({ name: 'X-OWA-CANARY' });
     return validCanary(cookies.find((c) => !c.domain || this.host.endsWith(c.domain.replace(/^\./, '')))?.value ?? cookies[0]?.value);
   }
 
   private async doAuthenticate(): Promise<void> {
     this.canary = undefined;
-    await this.ses.clearStorageData({ storages: ['cookies'] });
+    await this.ready;
+    this.assertActive();
+    await resetSession(this.ses, true);
+    this.assertActive();
 
     // Path A — Integrated Windows Auth. With SSO the server answers 401 Negotiate/NTLM and
     // Chromium completes the handshake (signed-in user, or the stored login/password via the
@@ -533,6 +556,8 @@ export class OwaClient {
   }
 
   dispose() {
-    void this.ses.clearStorageData();
+    if (this.abort.signal.aborted) return;
+    this.abort.abort();
+    void resetSession(this.ses);
   }
 }

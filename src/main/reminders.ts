@@ -46,6 +46,11 @@ export class ReminderScheduler {
     this.tick();
   }
 
+  reset() {
+    this.shown.clear();
+    this.snoozedUntil.clear();
+  }
+
   stop() {
     if (this.timer) clearInterval(this.timer);
   }

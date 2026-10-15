@@ -274,3 +274,27 @@ it('reports transport acceptance separately from a verified OWA session', async 
   await expect(rejected.authenticate()).rejects.toThrow();
   expect(stages).toContain('server'); expect(stages).toContain('certificate'); expect(stages).not.toContain('auth');
 });
+
+it('cancels an in-flight HTTP request and rejects future work after disposal', async () => {
+  const client = new OwaClient({ serverUrl: BASE, useWindowsAuth: true });
+  const promise = client.authenticate();
+  const checked = expect(promise).rejects.toThrow(/Запрос отменен/);
+  client.dispose(); await checked;
+  const before = srv.calls.length;
+  await expect(client.authenticate()).rejects.toThrow(/Запрос отменен/);
+  expect(srv.calls).toHaveLength(before);
+});
+it('a cancellation signal rejects HTTP work without a request when already aborted', async () => {
+  const controller = new AbortController(); controller.abort();
+  const before = srv.calls.length;
+  await expect(sendRequest({} as unknown as Session, { url: `${BASE}/owa/`, signal: controller.signal }, { host: ORIGIN, port: 443, origin: ORIGIN }, {})).rejects.toThrow(/Запрос отменен/);
+  expect(srv.calls).toHaveLength(before);
+});
+
+it('aborts an HTTP response already in progress', async () => {
+  const controller = new AbortController();
+  const request = sendRequest({} as unknown as Session, { url: `${BASE}/owa/`, signal: controller.signal }, { host: ORIGIN, port: 443, origin: ORIGIN }, {});
+  const checked = expect(request).rejects.toThrow(/Запрос отменен/);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  controller.abort(); await checked;
+});

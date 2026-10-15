@@ -25,6 +25,15 @@ function writeAtomic(path: string, data: string | Buffer) {
   renameSync(tmp, path);
 }
 
+
+const unreadableNotes = new Set<string>();
+
+function readBounded(path: string, maxBytes: number): Buffer {
+  const size = statSync(path);
+  if (!size.isFile() || size.size > maxBytes) throw new Error('Invalid profile file');
+  return readFileSync(path);
+}
+
 /** No settings file yet: the very first launch, when the settings window should open to confirm the defaults. */
 export function isFirstRun(): boolean {
   return !existsSync(join(dir(), 'settings.json'));
@@ -105,20 +114,24 @@ export function savePassword(password: string | undefined, server: string): bool
 }
 
 /** The last synced meetings, so the widget shows something offline and right after launch. */
-export function loadEventCache(): CalendarEvent[] {
-  const p = join(dir(), 'cache.bin');
-  if (!existsSync(p)) return [];
-  const text = decrypt(readFileSync(p));
-  if (!text) return [];
+export function loadEventCache(account: string): CalendarEvent[] {
   try {
-    return sanitizeEvents(JSON.parse(text));
+    const p = join(dir(), 'cache.bin');
+    if (!existsSync(p)) return [];
+    const text = decrypt(readBounded(p, 16 * 1024 * 1024));
+    if (!text) return [];
+    const raw: unknown = JSON.parse(text);
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return []; // Legacy cache has no owner: resync.
+    const value = raw as Record<string, unknown>;
+    return value.version === 2 && value.account === account ? sanitizeEvents(value.events) : [];
   } catch {
+    log.warn('cache: could not read the optional cache; starting without it');
     return [];
   }
 }
 
-export function saveEventCache(events: CalendarEvent[]) {
-  const enc = encrypt(JSON.stringify(events));
+export function saveEventCache(events: CalendarEvent[], account: string) {
+  const enc = encrypt(JSON.stringify({ version: 2, account, events }));
   if (enc) writeAtomic(join(dir(), 'cache.bin'), enc);
 }
 
@@ -129,13 +142,20 @@ export function clearEventCache() {
 
 /** The person's notes on meetings, encrypted with the Windows account's key like the saved password and the cache. */
 export function loadNotes(now: Date = new Date()): NoteBook {
-  const p = join(dir(), 'notes.bin');
-  if (!existsSync(p)) return new NoteBook();
-  const plain = decrypt(readFileSync(p));
-  if (!plain) return new NoteBook();
+  let p: string | undefined;
   try {
-    return NoteBook.parse(JSON.parse(plain), now);
+    p = join(dir(), 'notes.bin');
+    if (!existsSync(p)) { unreadableNotes.delete(p); return new NoteBook(); }
+    const plain = decrypt(readBounded(p, 8 * 1024 * 1024));
+    if (!plain) throw new Error('Cannot decrypt notes');
+    const raw: unknown = JSON.parse(plain);
+    if (!raw || typeof raw !== 'object' || !Array.isArray((raw as { notes?: unknown }).notes)) throw new Error('Invalid notes');
+    const book = NoteBook.parse(raw, now);
+    unreadableNotes.delete(p);
+    return book;
   } catch {
+    if (p) unreadableNotes.add(p);
+    log.warn('notes: could not read the file; original preserved and writes blocked until recovery');
     return new NoteBook();
   }
 }
@@ -143,6 +163,7 @@ export function loadNotes(now: Date = new Date()): NoteBook {
 /** Returns false when nothing could be written: with no OS encryption the notes are never put on disk in the clear. */
 export function saveNotes(book: NoteBook): boolean {
   const p = join(dir(), 'notes.bin');
+  if (unreadableNotes.has(p)) throw new Error('Файл заметок не удалось прочитать. Исходный файл сохранен: восстановите доступ и перезапустите приложение');
   if (book.size === 0) {
     rmSync(p, { force: true });
     return true;
