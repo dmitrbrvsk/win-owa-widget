@@ -1,6 +1,6 @@
 <h1 align="center">OWA Widget</h1>
 
-<p align="center">Русский · <a href="README.en.md">English</a></p>
+<p align="center">Русский · <a href="README.en.md"><strong>English documentation</strong></a></p>
 
 <p align="center">
   <a href="https://github.com/dmitrbrvsk/win-owa-widget/actions/workflows/build.yml?query=branch%3Amaster"><img src="https://github.com/dmitrbrvsk/win-owa-widget/actions/workflows/build.yml/badge.svg?branch=master" alt="Build master"></a>
@@ -30,7 +30,9 @@
 
 OWA Widget живет в области уведомлений и дает быстрый доступ к рабочему календарю. Посмотрите, что дальше, ответьте на приглашение или найдите общее время с коллегами — в компактном окне у трея. Почту приложение не читает.
 
-## В работе
+<a id="в-работе" name="в-работе"></a>
+
+## Возможности
 
 ### 01 / Посмотреть день и подключиться к встрече
 

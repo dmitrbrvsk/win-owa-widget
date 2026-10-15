@@ -1,0 +1,115 @@
+name: Bug report (English)
+description: Describe a problem and the conditions in which it occurs.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## This report is public
+        Do not include passwords, cookies, tokens, calendar or participant data, internal server addresses, or unredacted logs. Check all text and screenshots before submitting.
+
+        For diagnostics, you can attach a safe support report: Settings → Diagnostics → Copy support report. Review its contents first. A full log is not needed for an initial report.
+  - type: input
+    id: app_version
+    attributes:
+      label: OWA Widget version
+      description: Shown at the bottom of the app window.
+      placeholder: For example, 1.4.4
+    validations:
+      required: true
+  - type: input
+    id: windows_version
+    attributes:
+      label: Windows version
+      description: Specify Windows 10 or 11 and, if known, the build number from winver.
+      placeholder: For example, Windows 11 24H2
+    validations:
+      required: true
+  - type: dropdown
+    id: architecture
+    attributes:
+      label: Computer architecture
+      options:
+        - x64
+        - ARM64
+        - I do not know
+    validations:
+      required: true
+  - type: dropdown
+    id: distribution
+    attributes:
+      label: How the app is running
+      options:
+        - Installer (.exe)
+        - Portable archive (.zip)
+        - From source or in demo mode
+        - I do not know
+    validations:
+      required: true
+  - type: dropdown
+    id: authentication
+    attributes:
+      label: Authentication method
+      description: Do not include your username, password or server address.
+      options:
+        - Windows account (Kerberos / NTLM)
+        - Username and password through an OWA login form
+        - Separate single sign-on portal (ADFS / Azure AD)
+        - Demo mode without a connection
+        - I do not know
+    validations:
+      required: true
+  - type: dropdown
+    id: exchange_type
+    attributes:
+      label: Exchange type
+      description: Specify only the server type, without your company name or internal address.
+      options:
+        - Exchange on-premises
+        - Exchange Online / Microsoft 365
+        - Demo mode without a connection
+        - I do not know
+    validations:
+      required: true
+  - type: input
+    id: exchange_version
+    attributes:
+      label: Exchange version, if known
+      description: Product version only; do not include the server address or other internal information.
+      placeholder: For example, Exchange Server 2019 CU15
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Describe the actions in order. Use fictional names and meeting data.
+      placeholder: |
+        1. Open...
+        2. Click...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+      description: An error message or screenshot is useful once sensitive data has been removed.
+    validations:
+      required: true
+  - type: textarea
+    id: support_report
+    attributes:
+      label: Safe support report (optional)
+      description: Copy it from Settings and review it before sharing. Do not paste full logs or network responses here.
+      render: text
+  - type: checkboxes
+    id: privacy_check
+    attributes:
+      label: Check before publishing
+      options:
+        - label: I reviewed the text and attachments and removed passwords, cookies, tokens, calendar and participant data, internal addresses, and unredacted logs.
+          required: true
