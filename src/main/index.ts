@@ -66,6 +66,7 @@ import { type McpController } from './mcp/controller';
 import { OwaError } from './owa/errors';
 import { changedFields } from './owa/ewsMeeting';
 import { CalendarService } from './calendarService';
+import { confirmCertificateTrust } from './certificateConsent';
 import { describeError, log, logPath } from './log';
 import { MeetingGate, SlidingWindow } from './meetingGate';
 import { ReminderScheduler } from './reminders';
@@ -284,6 +285,7 @@ function snapshot(): Snapshot {
         taskbarLight,
         logPath: logPath(),
         noteIds: service.settings.privacyMode ? [] : service.noteIds(),
+        hasUnassignedNotes: service.hasUnassignedNotes(),
         participantGroups: service.settings.privacyMode
             ? { account: 'private', groups: [] }
             : service.participantGroupState(),
@@ -908,32 +910,6 @@ async function confirmAuthenticationRetry(parent?: BrowserWindow): Promise<boole
     );
 }
 
-/** Trusting a certificate is a decision for the person, so it is asked in a native dialog the page cannot fake or click. */
-async function confirmTrustCertificate(parent?: BrowserWindow): Promise<boolean> {
-    const pending = service.pendingCertificate();
-    if (!pending) return false;
-    const until = new Date(pending.validTo).toLocaleDateString('ru-RU');
-    const response = await askNative(
-        {
-            type: 'warning',
-            title: 'OWA Widget',
-            message: `Сертификат сервера ${pending.host} не прошёл проверку Windows`,
-            detail:
-                `Сертификат ${pending.reason}.\n\n` +
-                `Выдан: ${pending.issuer}\nДля: ${pending.subject}\nДействует до: ${until}\nОтпечаток: ${pending.fingerprint}\n\n` +
-                'Если это внутренний сертификат компании, правильнее установить корневой сертификат компании в Windows — тогда ему будут доверять и браузер, и это приложение. ' +
-                'Если всё же довериться здесь, приложение будет отправлять на этот сервер ваш пароль и читать календарь, пока сертификат совпадает с отпечатком выше.\n\n' +
-                'Сверьте отпечаток с тем, что показывает ваш ИТ-отдел. Если не уверены — нажмите «Отмена»: так можно отдать пароль подставному серверу.',
-            buttons: ['Отмена', 'Довериться этому сертификату'],
-            defaultId: 0,
-            cancelId: 0,
-            noLink: true,
-        },
-        parent,
-    );
-    return response === 1;
-}
-
 /**
  * "Send the invitations?" in a native dialog built from the validated meeting. The window cannot
  * click it. The default (and Esc) is "Cancel". Returns true only when the person pressed "Send".
@@ -1142,9 +1118,10 @@ function registerIpc() {
     });
     handle(IPC.trustCertificate, async (e, fp) => {
         if (!isFingerprint(fp)) throw new Error('Недопустимый отпечаток');
-        if (!(await confirmTrustCertificate(BrowserWindow.fromWebContents(e.sender) ?? undefined)))
-            return;
-        await service.trustCertificate(fp);
+        const approved = await confirmCertificateTrust(service, fp, (options) =>
+            askNative(options, BrowserWindow.fromWebContents(e.sender) ?? undefined),
+        );
+        if (approved) await service.trustCertificate(approved);
     });
     handle(IPC.forgetCertificate, () => service.forgetCertificate());
     handle(IPC.clearCache, () => service.clearCache());
@@ -1162,6 +1139,7 @@ function registerIpc() {
     handle(IPC.clearNotes, async () => {
         const count = service.noteIds().length;
         if (count === 0) return 0;
+        const revision = service.accountRevision;
         const lang = uiLang();
         if (!app.isPackaged && process.env.OWA_E2E_AUTOCONFIRM === '1') return service.clearNotes(); // development build only, like the other confirmations
         const answer = await askNative({
@@ -1169,8 +1147,8 @@ function registerIpc() {
             title: 'OWA Widget',
             message:
                 lang === 'en'
-                    ? 'Delete all your notes on meetings?'
-                    : 'Удалить все ваши заметки к встречам?',
+                    ? 'Delete meeting notes for the current account?'
+                    : 'Удалить заметки к встречам текущего аккаунта?',
             detail:
                 lang === 'en'
                     ? `Notes to delete: ${count}. This cannot be undone.`
@@ -1180,7 +1158,10 @@ function registerIpc() {
             cancelId: 0,
             noLink: true,
         });
-        return answer === 1 ? service.clearNotes() : 0;
+        if (answer !== 1) return 0;
+        if (revision !== service.accountRevision)
+            throw new Error('Аккаунт изменился: повторите удаление заметок');
+        return service.clearNotes();
     });
     handle(IPC.openLog, () => shell.showItemInFolder(logPath()));
     handle(IPC.openSettings, () => openSettings());

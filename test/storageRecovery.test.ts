@@ -1,4 +1,5 @@
 // Unreadable optional profile files must not prevent startup.
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import nodePath from 'node:path';
@@ -14,7 +15,11 @@ import {
 import { NoteBook } from '../src/shared/notes';
 import { type CalendarEvent } from '../src/shared/types';
 
+const ACCOUNT = '["mail.example","alice"]';
 const state = vi.hoisted(() => ({ path: '' }));
+const noteFile = () =>
+    nodePath.join(state.path, 'notes', `${createHash('sha256').update(ACCOUNT).digest('hex')}.bin`);
+
 vi.mock('electron', () => ({
     app: { getPath: () => state.path, isPackaged: true },
     safeStorage: {
@@ -32,10 +37,10 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(state.path, { recursive: true, force: true }));
 it('recovers from unreadable optional files without deleting them', () => {
-    for (const name of ['cache.bin', 'notes.bin', 'groups.bin'])
-        mkdirSync(nodePath.join(state.path, name));
+    for (const name of ['cache.bin', 'groups.bin']) mkdirSync(nodePath.join(state.path, name));
+    mkdirSync(noteFile(), { recursive: true });
     expect(() => loadEventCache('account')).not.toThrow();
-    expect(() => loadNotes()).not.toThrow();
+    expect(() => loadNotes(ACCOUNT)).not.toThrow();
     expect(() => loadParticipantGroups()).not.toThrow();
 });
 
@@ -62,25 +67,28 @@ it('binds the encrypted calendar cache to its account and never guesses a legacy
 it.each(['corrupt', 'ENC:{broken', 'ENC:[]'])(
     'preserves unreadable notes and prevents destructive empty writes: %s',
     (content) => {
-        const path = nodePath.join(state.path, 'notes.bin');
+        const path = noteFile();
+        mkdirSync(nodePath.dirname(path), { recursive: true });
         writeFileSync(path, content);
-        expect(loadNotes().size).toBe(0);
-        expect(() => saveNotes(new NoteBook())).toThrow(/Исходный файл сохранен/);
+        expect(loadNotes(ACCOUNT).size).toBe(0);
+        expect(() => saveNotes(new NoteBook(), ACCOUNT)).toThrow(/Исходный файл сохранен/);
         expect(readFileSync(path, 'utf8')).toBe(content);
     },
 );
 it('rejects oversized optional files before reading and keeps the notes file', () => {
     writeFileSync(nodePath.join(state.path, 'cache.bin'), Buffer.alloc(16 * 1024 * 1024 + 1));
-    writeFileSync(nodePath.join(state.path, 'notes.bin'), Buffer.alloc(8 * 1024 * 1024 + 1));
+    mkdirSync(nodePath.dirname(noteFile()), { recursive: true });
+    writeFileSync(noteFile(), Buffer.alloc(8 * 1024 * 1024 + 1));
     expect(loadEventCache('account')).toEqual([]);
-    expect(loadNotes().size).toBe(0);
-    expect(existsSync(nodePath.join(state.path, 'notes.bin'))).toBe(true);
+    expect(loadNotes(ACCOUNT).size).toBe(0);
+    expect(existsSync(noteFile())).toBe(true);
 });
 it('unblocks note writes after the file has been recovered and reloaded', () => {
-    const path = nodePath.join(state.path, 'notes.bin');
+    const path = noteFile();
+    mkdirSync(nodePath.dirname(path), { recursive: true });
     writeFileSync(path, 'corrupt');
-    loadNotes();
-    writeFileSync(path, `ENC:${JSON.stringify({ version: 1, notes: [] })}`);
-    expect(loadNotes().size).toBe(0);
-    expect(() => saveNotes(new NoteBook())).not.toThrow();
+    loadNotes(ACCOUNT);
+    writeFileSync(path, `ENC:${JSON.stringify({ version: 2, account: ACCOUNT, notes: [] })}`);
+    expect(loadNotes(ACCOUNT).size).toBe(0);
+    expect(() => saveNotes(new NoteBook(), ACCOUNT)).not.toThrow();
 });

@@ -14,6 +14,7 @@ import {
     weekWindow,
 } from '../shared/availability';
 import { dedupeEmails, emailKey } from '../shared/email';
+import { hm, localDateText } from '../shared/format';
 import { type Dict, type Lang } from '../shared/i18n';
 import { localPeople } from '../shared/meetingForm';
 import { type AvailabilityRequest, type AvailabilityResult, type Snapshot } from '../shared/types';
@@ -31,32 +32,24 @@ const NAME_W = 190;
 
 const STATUS_ORDER = ['free', 'tentative', 'busy', 'oof', 'nodata'] as const;
 
-const locale = (lang: Lang) => (lang === 'en' ? 'en-GB' : 'ru-RU');
 const capital = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 
 function hhmm(ms: number, lang: Lang): string {
-    return new Date(ms).toLocaleTimeString(locale(lang), {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false,
-    });
+    return hm(new Date(ms), lang);
 }
 
 /** "Чт 8 окт" */
 function dayLabel(ms: number, lang: Lang): string {
     const d = new Date(ms);
-    const wd = d.toLocaleDateString(locale(lang), { weekday: 'short' }).replace('.', '');
-    const dm = d
-        .toLocaleDateString(locale(lang), { day: 'numeric', month: 'short' })
-        .replace('.', '');
+    const wd = localDateText(d, lang, 'weekdayShort').replace('.', '');
+    const dm = localDateText(d, lang, 'dayMonthShort').replace('.', '');
     return `${capital(wd)} ${dm}`;
 }
 
 /** "5–11 окт 2026" */
 function weekLabel(start: Date, lang: Lang): string {
     const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6);
-    const month = (d: Date) =>
-        d.toLocaleDateString(locale(lang), { month: 'short' }).replace('.', '');
+    const month = (d: Date) => localDateText(d, lang, 'monthShort').replace('.', '');
     return start.getMonth() === end.getMonth()
         ? `${start.getDate()}–${end.getDate()} ${month(end)} ${end.getFullYear()}`
         : `${start.getDate()} ${month(start)} – ${end.getDate()} ${month(end)} ${end.getFullYear()}`;

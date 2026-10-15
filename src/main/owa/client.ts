@@ -51,6 +51,7 @@ import {
     OwaError,
     sendRequest,
 } from './http';
+import { parseOwaJson } from './json';
 import {
     defaultCalendarFolder,
     extractCanaryFromHtml,
@@ -440,7 +441,7 @@ export class OwaClient {
         try {
             const res = await this.service('GetCalendarFolders', {}, 'header');
             if (res.status >= 200 && res.status < 300)
-                this.folder = defaultCalendarFolder(JSON.parse(res.text()));
+                this.folder = defaultCalendarFolder(parseOwaJson(res.text()));
         } catch (e) {
             // Only a server-side failure of this optional call falls back to the distinguished "calendar"
             // folder. Login, network and certificate problems are reported, not retried with a second login.
@@ -466,7 +467,7 @@ export class OwaClient {
             try {
                 // eslint-disable-next-line no-await-in-loop -- Bounded recovery retries must observe the previous Exchange response before changing folders or retrying.
                 const res = await this.withSession(run, 'GetCalendarView');
-                return parseCalendarView(JSON.parse(res.text()));
+                return parseCalendarView(parseOwaJson(res.text()));
             } catch (e) {
                 const abstractFault =
                     e instanceof OwaError &&
@@ -505,7 +506,7 @@ export class OwaClient {
                 ),
             'GetCalendarEvent',
         );
-        return parseEventDetails(JSON.parse(res.text()));
+        return parseEventDetails(parseOwaJson(res.text()));
     }
 
     // ---------- EWS: create a meeting, look up people ----------
@@ -730,7 +731,7 @@ export class OwaClient {
                 () => this.service('GetOwaUserConfiguration', {}, 'header'),
                 'GetOwaUserConfiguration',
             );
-            this.ownEmail = parseOwnAddress(JSON.parse(res.text())) ?? null;
+            this.ownEmail = parseOwnAddress(parseOwaJson(res.text())) ?? null;
         } catch (e) {
             // A server-side refusal of this optional call only means "unknown"; login, network and certificate problems are reported.
             if (e instanceof OwaError && e.kind !== 'server') throw e;

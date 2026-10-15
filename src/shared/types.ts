@@ -150,6 +150,8 @@ export interface Snapshot {
     taskbarLight: boolean;
     /** The meetings the person has written a note on (the notes themselves are asked for one at a time). */
     noteIds: string[];
+    /** Legacy notes without an account owner are preserved and never opened automatically. */
+    hasUnassignedNotes?: boolean;
     participantGroups: ParticipantGroupState;
 }
 

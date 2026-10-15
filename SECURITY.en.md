@@ -37,7 +37,7 @@ Download only from this repository's [Releases](https://github.com/dmitrbrvsk/wi
 - An incorrect password allows one attempt; after that, the app does not sign in again until a retry is confirmed in Settings — not on a schedule, through “Refresh”, or at the request of an interface window. Several failed sign-ins can lock a domain account; neither a hurried user nor a looping page should be able to consume those attempts.
 - Certificates are checked against the Windows certificate store. Trusting an internal certificate requires a native dialog showing its fingerprint; the app remembers that exact fingerprint for that host. The page cannot confirm trust itself.
 - People suggestions during meeting creation, attendee availability, meetings requested for statistics and meeting operations go **only** to the configured Exchange server, using the same protected channel as other requests (HTTPS, matching host and port, certificate validation). Meeting search and the “Copy” context menu work locally: the search query is neither sent anywhere nor written to the log.
-- **Personal meeting notes** are stored only in an encrypted profile file, using the same mechanism as the cache. They are not sent to Exchange or anywhere else, through requests or the log. If encryption is unavailable, the note is not saved and the user is notified. Limits: up to 5000 characters per note, at most 500 notes and 60 writes per minute. A note is accepted only for a meeting in the synchronized list; notes for meetings more than 92 days old are deleted automatically. “Delete all notes” in Settings requires native confirmation.
+- **Personal meeting notes** are stored only in an encrypted profile file, using the same mechanism as the cache. They are not sent to Exchange or anywhere else, through requests or the log. If encryption is unavailable, the note is not saved and the user is notified. Limits: up to 5000 characters per note, at most 500 notes and 60 writes per minute. A note is accepted only for a meeting in the synchronized list; notes for meetings more than 92 days old are deleted automatically. “Delete account notes” in Settings requires native confirmation.
 - “Reset cache” (Settings → Diagnostics) deletes the saved meeting list and server session. Password, certificate and settings remain.
 - Administrator rights are required neither for installation nor for use. Uninstalling through the installer removes settings, encrypted password, cache and log.
 
@@ -48,6 +48,14 @@ MCP is off by default. Enabling reading or widening title access requires a nati
 The standard MCP transport is stdio through a separate Node 24.22+ CLI. An internal authenticated loopback bridge has strict Host/Origin checks, bounded input/output and timeouts. Connection secrets never enter the interface or copied configuration. Requests and request-bound responses use AES-256-GCM with fresh nonces. Windows protection depends on inherited user-profile ACLs; code running as the same user or administrator can read the key. This does not protect against a compromised user account.
 
 **Enabling MCP allows calendar data to leave the widget for the connected client.** That client may send it to its AI provider or log it. Previously delivered data cannot be recalled. Check company policy and client settings before granting access. Setup, limitations and safe troubleshooting: [MCP guide](docs/MCP.en.md). This feature is not included in the published 1.4.4 release.
+
+## Audit fixes in unreleased source
+
+- Certificate approval is bound to the exact displayed host, fingerprint and account revision; changes during the native dialog invalidate approval.
+- The real transport authentication mode matches local data ownership. If a manual sign-in password becomes unavailable, the connection stops without falling back to Windows SSO.
+- Meeting notes have encrypted account ownership. Ownerless legacy `notes.bin` is preserved without reading or automatic import; see [Notes](docs/GUIDE.en.md#notes). Unreadable notes and participant groups cannot be overwritten by a subsequent save.
+- Server JSON is checked before materialization: up to 48 nesting levels, 1024 properties per object, 6000 array items and 200000 structural tokens, in addition to the HTTP byte limit. Walkers also bound actual visited nodes and array work. Oversized structures are rejected rather than freezing the app.
+- The MCP bridge keeps a separate pre-authentication concurrency limit. Only authenticated valid envelopes consume the 120-requests-per-minute operation budget. Each connection has an absolute three-second deadline, including slow headers and body delivery.
 
 ## Untrusted text
 

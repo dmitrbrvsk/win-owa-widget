@@ -68,6 +68,8 @@
         ]
     },
     "resolutions": {
-        "braces@npm:^3.0.3": "patch:braces@npm%3A3.0.3#~/.yarn/patches/braces-npm-3.0.3-582c14023c.patch"
+        "braces@npm:^3.0.3": "patch:braces@npm%3A3.0.3#~/.yarn/patches/braces-npm-3.0.3-582c14023c.patch",
+        "sprintf-js@npm:^1.1.2": "patch:sprintf-js@npm%3A1.1.3#~/.yarn/patches/sprintf-js-npm-1.1.3-b99efd75b2.patch",
+        "katex@npm:^0.16.0": "npm:0.18.2"
     }
 }

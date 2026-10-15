@@ -16,6 +16,7 @@ const wire = vi.hoisted(() => ({
     clearFails: false,
     settingsFail: false,
     notesFail: false,
+    password: undefined as string | undefined,
     clients: [] as string[],
     details: vi.fn(),
     respond: vi.fn(),
@@ -28,10 +29,11 @@ vi.mock('../src/main/log', () => ({
 }));
 vi.mock('../src/main/store', () => ({
     loadSettings: () => structuredClone(DEFAULT_SETTINGS),
+    hasUnassignedNotes: () => false,
     loadNotes: () => new NoteBook(),
     loadParticipantGroups: () => new ParticipantGroupBook(),
     loadEventCache: () => [],
-    loadPassword: () => {},
+    loadPassword: () => wire.password,
     saveSettings: () => {
         if (wire.settingsFail) throw new Error('Disk full');
     },
@@ -44,7 +46,10 @@ vi.mock('../src/main/store', () => ({
     clearEventCache: () => {
         if (wire.clearFails) throw new Error('Access denied');
     },
-    savePassword: () => true,
+    savePassword: (password: string | undefined) => {
+        wire.password = password;
+        return !!password;
+    },
 }));
 vi.mock('../src/main/owa/http', async () => {
     const { OwaError: MockOwaError } = await import('../src/main/owa/errors');
@@ -90,6 +95,7 @@ beforeEach(() => {
     wire.clearFails = false;
     wire.settingsFail = false;
     wire.notesFail = false;
+    wire.password = undefined;
     vi.clearAllMocks();
     for (const call of [wire.details, wire.respond, wire.availability])
         call.mockRejectedValue(new OwaError('auth', 'Rejected'));
@@ -99,6 +105,7 @@ it('clears meetings and ignores an old sync after switching accounts', async () 
     service.events = [event];
     const oldSync = service.syncNow();
     await service.applySettings({
+        password: 'synthetic-new-account-password',
         settings: {
             ...service.settings,
             account: { ...service.settings.account, username: 'new-account' },

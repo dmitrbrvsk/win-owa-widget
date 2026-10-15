@@ -1,17 +1,7 @@
 // Settings (plain JSON) and secrets / cache (encrypted with Windows DPAPI via safeStorage).
-import { app, safeStorage } from 'electron';
-import {
-    existsSync,
-    mkdirSync,
-    readFileSync,
-    renameSync,
-    rmSync,
-    statSync,
-    writeFileSync,
-} from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import nodePath from 'node:path';
 
-import { NoteBook } from '../shared/notes';
 import { ParticipantGroupBook } from '../shared/participantGroups';
 import { openSecret, sealSecret } from '../shared/secret';
 import { checkServerUrl, serverKey } from '../shared/serverUrl';
@@ -19,29 +9,14 @@ import { type AppSettings, type CalendarEvent } from '../shared/types';
 import { readStoredPin, sanitizeEvents, sanitizeSettings } from '../shared/validate';
 
 import { log } from './log';
+import { decrypt, encrypt, profileDir as dir, readBounded, writeAtomic } from './profileStorage';
 import { DEFAULT_SETTINGS } from './store.defaults';
 
 export { DEFAULT_SETTINGS };
+export { hasUnassignedNotes, loadNotes, saveNotes } from './noteStorage';
 
-const dir = () => {
-    const d = app.getPath('userData');
-    if (!existsSync(d)) mkdirSync(d, { recursive: true });
-    return d;
-};
-
-function writeAtomic(path: string, data: string | Buffer) {
-    const tmp = `${path}.tmp`;
-    writeFileSync(tmp, data, { mode: 0o600 });
-    renameSync(tmp, path);
-}
-
-const unreadableNotes = new Set<string>();
-
-function readBounded(path: string, maxBytes: number): Buffer {
-    const size = statSync(path);
-    if (!size.isFile() || size.size > maxBytes) throw new Error('Invalid profile file');
-    return readFileSync(path);
-}
+const MAX_GROUP_FILE_BYTES = 1024 * 1024;
+const unreadableGroups = new Set<string>();
 
 /** No settings file yet: the very first launch, when the settings window should open to confirm the defaults. */
 export function isFirstRun(): boolean {
@@ -63,12 +38,14 @@ export function loadSettings(): AppSettings {
             );
             clean.account.serverUrl = DEFAULT_SETTINGS.account.serverUrl;
         }
+        const hasPassword = !!loadPassword(serverKey(clean.account.serverUrl));
         return {
             ...clean,
             account: {
                 ...clean.account,
                 ...readStoredPin(raw),
-                hasPassword: !!loadPassword(serverKey(clean.account.serverUrl)),
+                hasPassword,
+                useWindowsAuth: !clean.account.username || !hasPassword,
             },
         };
     } catch {
@@ -78,22 +55,6 @@ export function loadSettings(): AppSettings {
 
 export function saveSettings(s: AppSettings) {
     writeAtomic(nodePath.join(dir(), 'settings.json'), JSON.stringify(s, null, 2));
-}
-
-// Development on Linux without a keyring: allow Electron's plain-text backend so a password can be
-// kept between runs. Installed builds target Windows, where DPAPI is always available.
-if (process.platform === 'linux' && !app.isPackaged) safeStorage.setUsePlainTextEncryption(true);
-
-function encrypt(text: string): Buffer | null {
-    return safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(text) : null;
-}
-
-function decrypt(buf: Buffer): string | null {
-    try {
-        return safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(buf) : null;
-    } catch {
-        return null;
-    }
 }
 
 /**
@@ -162,64 +123,47 @@ export function clearEventCache() {
     rmSync(nodePath.join(dir(), 'cache.bin'), { force: true });
 }
 
-/** The person's notes on meetings, encrypted with the Windows account's key like the saved password and the cache. */
-export function loadNotes(now: Date = new Date()): NoteBook {
-    let p: string | undefined;
-    try {
-        p = nodePath.join(dir(), 'notes.bin');
-        if (!existsSync(p)) {
-            unreadableNotes.delete(p);
-            return new NoteBook();
-        }
-        const plain = decrypt(readBounded(p, 8 * 1024 * 1024));
-        if (!plain) throw new Error('Cannot decrypt notes');
-        const raw: unknown = JSON.parse(plain);
-        if (!raw || typeof raw !== 'object' || !Array.isArray((raw as { notes?: unknown }).notes))
-            throw new Error('Invalid notes');
-        const book = NoteBook.parse(raw, now);
-        unreadableNotes.delete(p);
-        return book;
-    } catch {
-        if (p) unreadableNotes.add(p);
-        log.warn(
-            'notes: could not read the file; original preserved and writes blocked until recovery',
-        );
-        return new NoteBook();
-    }
-}
-
-/** Returns false when nothing could be written: with no OS encryption the notes are never put on disk in the clear. */
-export function saveNotes(book: NoteBook): boolean {
-    const p = nodePath.join(dir(), 'notes.bin');
-    if (unreadableNotes.has(p))
-        throw new Error(
-            'Файл заметок не удалось прочитать. Исходный файл сохранен: восстановите доступ и перезапустите приложение',
-        );
-    if (book.size === 0) {
-        rmSync(p, { force: true });
-        return true;
-    }
-    const enc = encrypt(JSON.stringify(book));
-    if (!enc) return false;
-    writeAtomic(p, enc);
-    return true;
-}
-
 /** Participant addresses are never written as plain JSON. */
 export function loadParticipantGroups(): ParticipantGroupBook {
+    const path = nodePath.join(dir(), 'groups.bin');
     try {
-        const path = nodePath.join(dir(), 'groups.bin');
-        if (!existsSync(path) || statSync(path).size > 1024 * 1024)
+        if (!existsSync(path)) {
+            unreadableGroups.delete(path);
             return new ParticipantGroupBook();
-        const plain = decrypt(readFileSync(path));
-        return plain ? ParticipantGroupBook.parse(JSON.parse(plain)) : new ParticipantGroupBook();
+        }
+        const plain = decrypt(readBounded(path, MAX_GROUP_FILE_BYTES));
+        if (!plain) throw new Error('Cannot decrypt participant groups');
+        const raw: unknown = JSON.parse(plain);
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw))
+            throw new Error('Invalid participant groups');
+        const value = raw as { version?: unknown; groups?: unknown };
+        if (value.version !== 1 || !Array.isArray(value.groups))
+            throw new Error('Invalid participant groups');
+        const book = ParticipantGroupBook.parse(raw);
+        if (book.toJSON().groups.length !== value.groups.length)
+            throw new Error('Invalid participant group entries');
+        unreadableGroups.delete(path);
+        return book;
     } catch {
+        unreadableGroups.add(path);
+        log.warn(
+            'groups: could not read the file; original preserved and writes blocked until recovery',
+        );
         return new ParticipantGroupBook();
     }
 }
 export function saveParticipantGroups(book: ParticipantGroupBook): boolean {
+    const path = nodePath.join(dir(), 'groups.bin');
+    if (unreadableGroups.has(path))
+        throw new Error(
+            'Файл групп не удалось прочитать. Исходный файл сохранен: восстановите доступ и перезапустите приложение',
+        );
     const enc = encrypt(JSON.stringify(book));
     if (!enc) return false;
-    writeAtomic(nodePath.join(dir(), 'groups.bin'), enc);
+    if (enc.length > MAX_GROUP_FILE_BYTES)
+        throw new Error(
+            'Файл групп слишком большой: удалите ненужные группы и повторите сохранение',
+        );
+    writeAtomic(path, enc);
     return true;
 }

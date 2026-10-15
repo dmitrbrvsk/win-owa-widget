@@ -19,7 +19,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Certificate consent cannot approve a different fingerprint or account after a pending-certificate change.
+- A password-read failure cannot change the authentication mode under a different cache owner; account changes during deletion consent cannot delete the replacement account's notes.
+- Notes are isolated per account; ownerless legacy notes are preserved separately. Unreadable notes/groups cannot be silently overwritten.
+- JSON structure and actual traversal work are bounded before expensive allocations; time/date formatting reuses formatters and avoids repeated time formatter construction.
+- Invalid MCP requests do not consume the authenticated quota; slow headers and body streams have an absolute deadline.
+
 - Consistent code formatting; clarified React hook dependencies, list keys and interface handlers. Icons use JSX instead of inserted HTML.
+- Updated KaTeX and patched numeric precision in `sprintf-js`; build-tool security advisories are covered by regression tests.
 - A local `braces` patch bounds pattern nesting; added regression checks for this development-tool dependency.
 - Removed outdated duplicate release instructions; the safe support report is now the standard way to report problems.
 

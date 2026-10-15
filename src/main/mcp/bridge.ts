@@ -38,6 +38,7 @@ export async function startReadBridge(
     const key = randomBytes(32).toString('base64url');
     const gate = new RequestGate(4, 120, 60_000);
     const seen = new Set<string>();
+    let pendingBodies = 0;
     let active = true;
     let port = 0;
     const server = createServer({ maxHeaderSize: 4096 }, (req, res) => {
@@ -47,14 +48,15 @@ export async function startReadBridge(
             res.writeHead(403, { Connection: 'close' }).end('{}');
             return;
         }
-        let release: () => void;
-        try {
-            release = gate.enter();
-        } catch {
+        // Bound unauthenticated work without spending the authenticated operation budget.
+        if (pendingBodies >= 4) {
             res.writeHead(429, { Connection: 'close' }).end('{}');
             return;
         }
-        req.on('close', release);
+        pendingBodies += 1;
+        req.once('close', () => {
+            pendingBodies -= 1;
+        });
         let size = 0;
         const chunks: Buffer[] = [];
         req.on('data', (chunk: Buffer) => {
@@ -73,6 +75,7 @@ export async function startReadBridge(
     });
 
     function answer(body: string, res: ServerResponse) {
+        let release: (() => void) | undefined;
         try {
             const raw = unseal(body, key, REQUEST_CONTEXT);
             if (
@@ -86,6 +89,12 @@ export async function startReadBridge(
                 seen.has(raw.id)
             )
                 throw new Error('Invalid request');
+            try {
+                release = gate.enter();
+            } catch {
+                res.writeHead(429, { Connection: 'close' }).end('{}');
+                return;
+            }
             seen.add(raw.id);
             // This is a read-only replay guard, not an unbounded history of client activity.
             if (seen.size > 256) seen.delete(seen.values().next().value!);
@@ -95,6 +104,8 @@ export async function startReadBridge(
             res.end(response);
         } catch {
             res.writeHead(400, { Connection: 'close' }).end('{}');
+        } finally {
+            release?.();
         }
     }
 
@@ -102,7 +113,13 @@ export async function startReadBridge(
     server.headersTimeout = 3000;
     server.keepAliveTimeout = 1;
     server.maxConnections = 8;
-    server.on('connection', (socket) => socket.setTimeout(3000, () => socket.destroy()));
+    server.on('connection', (socket) => {
+        // Activity resets the idle timeout; this independent deadline also stops header/body drips.
+        const deadline = setTimeout(() => socket.destroy(), 3000);
+        deadline.unref();
+        socket.once('close', () => clearTimeout(deadline));
+        socket.setTimeout(3000, () => socket.destroy());
+    });
     await new Promise<void>((resolve, reject) => {
         server.once('error', reject);
         server.listen(0, '127.0.0.1', () => {

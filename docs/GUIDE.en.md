@@ -265,6 +265,14 @@ Check your calendar and Sent Items in OWA first. If the connection dropped while
 Exchange did not provide their calendar: you lack free/busy permissions, the address was not found, or the server did not respond. That person does not block “Best options”, but an option is marked less reliable. Other people's meeting titles appear only where Exchange allows them.
 </details>
 
+### Notes
+
+New notes are stored separately for each server and sign-in identity. Switching accounts does not expose or delete another account's notes. Settings → “Delete account notes” deletes notes only for the current account and requires native confirmation.
+
+After updating, older notes may show a warning in Settings. The old `notes.bin` file did not record its owner, so the app preserves it without opening it or assigning it to the current account. It is not removed by “Delete account notes”. Keep a private backup of `%APPDATA%\OWA Widget\notes.bin`; do not publish it. Automatic import is unavailable because the account cannot be determined reliably. Recover old notes only with a verified account and trusted local assistance.
+
+Unreadable encrypted notes and participant-group files are preserved. Writes to the affected file are blocked until access or encryption is restored and the app is restarted. Do not delete the original to dismiss an error.
+
 ### Notifications and problems
 
 <details>

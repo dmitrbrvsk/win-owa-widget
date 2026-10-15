@@ -578,6 +578,11 @@ export function Settings({ snap }: { snap: Snapshot }) {
                 <div className='setting-row'>
                     <div className='label'>
                         <div className='hint'>{t.notesHint}</div>
+                        {snap.hasUnassignedNotes && (
+                            <div className='msg' role='status'>
+                                {t.notesUnassigned}
+                            </div>
+                        )}
                         {notesMsg && (
                             <div className={`msg ${notesMsg.ok ? 'ok' : 'bad'}`} role='status'>
                                 {notesMsg.text}

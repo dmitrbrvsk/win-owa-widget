@@ -117,6 +117,7 @@ export function Timeline({
                 ))}
                 {blocks.map((b) => {
                     const e = b.event;
+                    const when = range(e.start, e.end, lang);
                     const top = y(b.startMin) + 1;
                     const height = Math.max(22, ((b.endMin - b.startMin) * HOUR) / 60 - 2);
                     const colW = `calc((100% - 56px) / ${b.lanes})`;
@@ -151,7 +152,7 @@ export function Timeline({
                                     width: '100%',
                                 }}
                                 onClick={() => onOpen(e)}
-                                aria-label={`${displayTitle(e)}, ${range(e.start, e.end, lang)}`}
+                                aria-label={`${displayTitle(e)}, ${when}`}
                             >
                                 <div className='t nowrap'>
                                     {displayTitle(e)}
@@ -166,7 +167,7 @@ export function Timeline({
                                     )}
                                 </div>
                                 <div className='m nowrap tnum'>
-                                    {range(e.start, e.end, lang)}
+                                    {when}
                                     {host && (
                                         <React.Fragment>
                                             {' · '}

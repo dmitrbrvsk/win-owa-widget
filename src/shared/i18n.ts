@@ -355,8 +355,10 @@ const ru = {
     noteMarker: 'Есть заметка',
     notesTitle: 'Заметки к встречам',
     notesHint:
-        'Личные заметки хранятся только на этом компьютере, зашифрованными средствами Windows, и никуда не отправляются. Заметки к встречам старше трёх месяцев удаляются сами.',
-    notesDelete: 'Удалить все заметки',
+        'Личные заметки хранятся только на этом компьютере, зашифрованными средствами Windows, и никуда не отправляются. Заметки к встречам старше трех месяцев удаляются сами.',
+    notesUnassigned:
+        'Старые заметки сохранены отдельно. Их формат не указывает аккаунт, поэтому они не открываются автоматически. Подробнее — в руководстве, раздел «Заметки».',
+    notesDelete: 'Удалить заметки аккаунта',
     notesDeleted: (n: number) => `Удалено заметок: ${n}`,
     notesNone: 'Заметок нет',
     sendInvitations: 'Отправить приглашение',
@@ -815,7 +817,9 @@ const en: Dict = {
     notesTitle: 'Meeting notes',
     notesHint:
         'Personal notes stay on this computer, encrypted by Windows, and are never sent anywhere. Notes on meetings older than three months are deleted automatically.',
-    notesDelete: 'Delete all notes',
+    notesUnassigned:
+        'Old notes are preserved separately. Their format does not identify the account, so they are not opened automatically. See the Notes section of the guide.',
+    notesDelete: 'Delete account notes',
     notesDeleted: (n: number) => `Notes deleted: ${n}`,
     notesNone: 'No notes',
     sendInvitations: 'Send invitation',

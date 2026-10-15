@@ -9,6 +9,7 @@ import {
     type ResponseType,
 } from '../../shared/types';
 
+import { walkJson } from './boundedJson';
 import { type FolderIdentifier } from './payloads';
 
 // ---------- CANARY ----------
@@ -256,8 +257,6 @@ const MAX_CATEGORIES = 20;
 const MAX_ID = 2048;
 const MAX_ATTENDEES = 500;
 const MAX_BODY_TEXT = 100_000;
-/** JSON nesting followed when looking for folders and attendees. */
-const MAX_DEPTH = 40;
 /** Text from a body that is scanned for a preview: the beginning is all that is shown. */
 const PREVIEW_SOURCE = 20_000;
 const text = (v: unknown, max: number): string | undefined => {
@@ -289,6 +288,7 @@ function categories(raw: unknown): string[] {
     if (Array.isArray(raw)) list = raw;
     else if (typeof raw === 'string') list = [raw];
     return list
+        .slice(0, MAX_CATEGORIES)
         .map((c) => {
             let category: string | undefined;
             if (typeof c === 'string') category = c;
@@ -314,7 +314,6 @@ function categories(raw: unknown): string[] {
             }
             return category;
         })
-        .slice(0, MAX_CATEGORIES)
         .map((s) => (s === undefined ? undefined : clean(s, 100).trim()))
         .filter((s): s is string => !!s);
 }
@@ -393,14 +392,7 @@ export function defaultCalendarFolder(json: unknown): FolderIdentifier | undefin
         isDefaultCalendar: boolean;
     }
     const out: Candidate[] = [];
-    const walk = (v: unknown, depth = 0) => {
-        if (depth > MAX_DEPTH) return;
-        if (Array.isArray(v)) {
-            for (const x of v) walk(x, depth + 1);
-            return;
-        }
-        const o = obj(v);
-        if (!o) return;
+    walkJson(json, (o) => {
         const fid = obj(o.FolderId);
         const id = str(fid?.Id);
         if (id) {
@@ -415,10 +407,10 @@ export function defaultCalendarFolder(json: unknown): FolderIdentifier | undefin
                 isDefaultFolder: o.IsDefaultFolder === true,
                 isDefaultCalendar: o.IsDefaultCalendar === true,
             });
+            if (o.IsDefaultCalendar === true) return false;
         }
-        for (const x of Object.values(o)) walk(x, depth + 1);
-    };
-    walk(json);
+        return true;
+    });
     return (
         out.find((c) => c.isDefaultCalendar)?.id ??
         out.find(
@@ -455,6 +447,7 @@ function parseAttendeeContainer(v: unknown, kind: EventAttendee['kind']): EventA
 }
 
 const BODY_FIELDS = ['TextBody', 'UniqueBody', 'Body', 'NormalizedBody'] as const;
+const ATTENDEE_FIELDS: ReadonlySet<string> = new Set(['RequiredAttendees', 'OptionalAttendees']);
 
 export function parseEventDetails(json: unknown): EventDetails {
     const attendees: EventAttendee[] = [];
@@ -462,30 +455,25 @@ export function parseEventDetails(json: unknown): EventDetails {
         Record<(typeof BODY_FIELDS)[number], { value: string; isHtml: boolean }>
     > = {};
 
-    const walk = (v: unknown, depth = 0) => {
-        if (depth > MAX_DEPTH || attendees.length >= MAX_ATTENDEES * 2) return;
-        if (Array.isArray(v)) {
-            for (const x of v) walk(x, depth + 1);
-            return;
-        }
-        const o = obj(v);
-        if (!o) return;
-        if (o.RequiredAttendees)
-            attendees.push(...parseAttendeeContainer(o.RequiredAttendees, 'required'));
-        if (o.OptionalAttendees)
-            attendees.push(...parseAttendeeContainer(o.OptionalAttendees, 'optional'));
-        for (const f of BODY_FIELDS) {
-            const c = obj(o[f]);
-            const value = str(c?.Value);
-            if (!bodies[f] && value?.trim()) {
-                bodies[f] = { value, isHtml: str(c?.BodyType)?.toLowerCase() === 'html' };
+    walkJson(
+        json,
+        (o) => {
+            if (attendees.length >= MAX_ATTENDEES * 2) return false;
+            if (o.RequiredAttendees)
+                attendees.push(...parseAttendeeContainer(o.RequiredAttendees, 'required'));
+            if (o.OptionalAttendees)
+                attendees.push(...parseAttendeeContainer(o.OptionalAttendees, 'optional'));
+            for (const f of BODY_FIELDS) {
+                const c = obj(o[f]);
+                const value = str(c?.Value);
+                if (!bodies[f] && value?.trim()) {
+                    bodies[f] = { value, isHtml: str(c?.BodyType)?.toLowerCase() === 'html' };
+                }
             }
-        }
-        for (const [k, nested] of Object.entries(o)) {
-            if (k !== 'RequiredAttendees' && k !== 'OptionalAttendees') walk(nested, depth + 1);
-        }
-    };
-    walk(json);
+            return true;
+        },
+        { skip: ATTENDEE_FIELDS },
+    );
 
     const capped = attendees.slice(0, MAX_ATTENDEES * 2);
     const body = BODY_FIELDS.map((f) => bodies[f]).find(Boolean);

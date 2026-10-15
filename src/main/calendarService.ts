@@ -35,11 +35,13 @@ import { sanitizeUpdate } from '../shared/validate';
 import { OwaClient } from './owa/client';
 import { type MeetingField } from './owa/ewsMeeting';
 import { OwaError } from './owa/http';
+import { type CertificateApproval } from './certificateConsent';
 import { demoAvailability, demoDetails, demoEvents, demoPeople, demoStatsEvents } from './demo';
 import { RequestGate } from './limits';
 import { describeError, log } from './log';
 import {
     clearEventCache,
+    hasUnassignedNotes,
     loadEventCache,
     loadNotes,
     loadParticipantGroups,
@@ -133,7 +135,9 @@ export class CalendarService extends EventEmitter {
         super();
         this.demo = demo;
         this.settings = loadSettings();
-        this.notes = demo ? new NoteBook() : loadNotes();
+        this.notes = demo
+            ? new NoteBook()
+            : loadNotes(participantGroupAccount(this.settings.account));
         this.groups = demo ? new ParticipantGroupBook() : loadParticipantGroups();
         if (!demo) this.events = loadEventCache(participantGroupAccount(this.settings.account));
         if (!demo && !this.settings.account.serverUrl) this.sync = { phase: 'notConfigured' };
@@ -166,14 +170,19 @@ export class CalendarService extends EventEmitter {
         const a = this.settings.account;
         if (this.demo || !a.serverUrl) return;
         try {
-            // The saved password is only released for the server it was typed for.
-            const password = loadPassword(serverKey(a.serverUrl));
+            // The selected owner and the real transport must use the same auth mode, even if DPAPI
+            // availability changes after settings load. A missing manual secret never enables SSO.
+            const password = a.useWindowsAuth ? undefined : loadPassword(serverKey(a.serverUrl));
+            if (!a.useWindowsAuth && (!a.username || !password))
+                throw new OwaError(
+                    'auth',
+                    'Пароль для ручного входа недоступен: повторно сохраните его в настройках',
+                );
             this.client = new OwaClient({
                 serverUrl: a.serverUrl,
                 partition: 'owa',
-                // No login or no password → the signed-in Windows account; both present → they are used instead.
-                useWindowsAuth: !a.username || !password,
-                username: a.username || undefined,
+                useWindowsAuth: a.useWindowsAuth,
+                username: a.useWindowsAuth ? undefined : a.username,
                 password,
                 trustedFingerprint: pinFor(a, hostOf(a.serverUrl)),
             });
@@ -419,6 +428,10 @@ export class CalendarService extends EventEmitter {
 
     // ---------- Notes ----------
 
+    hasUnassignedNotes(): boolean {
+        return !this.demo && hasUnassignedNotes();
+    }
+
     noteIds(): string[] {
         return this.notes.ids();
     }
@@ -436,7 +449,7 @@ export class CalendarService extends EventEmitter {
         const next = NoteBook.parse(this.notes.toJSON(), now);
         next.set(id, text, e.start, now);
         next.prune(now);
-        if (!this.demo && !saveNotes(next))
+        if (!this.demo && !saveNotes(next, participantGroupAccount(this.settings.account)))
             throw new Error(
                 'Заметку нельзя сохранить: на этом компьютере недоступно шифрование Windows',
             );
@@ -448,7 +461,7 @@ export class CalendarService extends EventEmitter {
     clearNotes(): number {
         const n = this.notes.size;
         const next = new NoteBook();
-        if (!this.demo && !saveNotes(next))
+        if (!this.demo && !saveNotes(next, participantGroupAccount(this.settings.account)))
             throw new Error('Заметки нельзя удалить: недоступно шифрование Windows');
         this.notes = next;
         this.emit('changed');
@@ -765,6 +778,9 @@ export class CalendarService extends EventEmitter {
             JSON.stringify({ ...prev.account, hasPassword: 0 }) !==
                 JSON.stringify({ ...this.settings.account, hasPassword: 0 });
         if (accountChanged) {
+            this.notes = this.demo
+                ? new NoteBook()
+                : loadNotes(participantGroupAccount(this.settings.account));
             this.lastDiagnostics = undefined;
             this.events = [];
             try {
@@ -923,12 +939,16 @@ export class CalendarService extends EventEmitter {
     }
 
     /**
-     * Pins the certificate a server presented, for that host only. The fingerprint must be the one
-     * the network layer just rejected: a value made up by the renderer is refused.
+     * Consume native approval without yielding: the account, host and fingerprint must still match
+     * the certificate shown in the dialog, even if another task ran after the helper returned.
      */
-    async trustCertificate(fingerprint: string) {
+    async trustCertificate(approval: CertificateApproval) {
         const pending = this.untrusted;
-        if (pending?.fingerprint !== fingerprint)
+        if (
+            approval.accountRevision !== this.generation ||
+            pending?.host !== approval.host ||
+            pending.fingerprint !== approval.fingerprint
+        )
             throw new Error('Сертификат изменился — обновите календарь и повторите');
         log.info(`certificate pinned for ${pending.host}: ${pending.fingerprint}`);
         this.untrusted = undefined;

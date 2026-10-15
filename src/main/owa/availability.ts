@@ -18,6 +18,7 @@ import {
     type PersonAvailability,
 } from '../../shared/types';
 
+import { walkJson } from './boundedJson';
 import { xmlText } from './ewsMeeting';
 import { parseOwaDate } from './parse';
 import { owaLocalDate } from './payloads';
@@ -468,7 +469,6 @@ export function soapFaultCode(body: string): string | undefined {
 // ---------- The user's own address ----------
 
 const OWN_ADDRESS_KEYS = new Set(['UserEmailAddress', 'PrimarySmtpAddress', 'SmtpAddress']);
-const MAX_WALK = 5000;
 
 /**
  * The signed-in user's SMTP address from OWA's own session configuration (the same JSON the OWA
@@ -476,23 +476,19 @@ const MAX_WALK = 5000;
  */
 export function parseOwnAddress(json: unknown): string | undefined {
     const found: Record<string, string> = {};
-    let visited = 0;
-    const walk = (v: unknown, depth: number) => {
-        if (depth > 8) return;
-        const visit = visited;
-        visited += 1;
-        if (visit > MAX_WALK || !v || typeof v !== 'object') return;
-        if (Array.isArray(v)) {
-            for (const x of v.slice(0, 50)) walk(x, depth + 1);
-            return;
-        }
-        for (const [k, x] of Object.entries(v as Record<string, unknown>).slice(0, 200)) {
-            if (typeof x === 'string' && OWN_ADDRESS_KEYS.has(k) && !found[k] && isEmail(x.trim()))
-                found[k] = normalizeEmail(x);
-            else walk(x, depth + 1);
-        }
-    };
-    walk(json, 0);
+    walkJson(
+        json,
+        (value) => {
+            for (const k of OWN_ADDRESS_KEYS) {
+                if (!Object.hasOwn(value, k)) continue;
+                const x = value[k];
+                if (typeof x === 'string' && !found[k] && isEmail(x.trim()))
+                    found[k] = normalizeEmail(x);
+            }
+            return !found.UserEmailAddress;
+        },
+        { depth: 8, arrayEntries: 50 },
+    );
     for (const k of OWN_ADDRESS_KEYS) if (found[k]) return found[k];
     return undefined;
 }
