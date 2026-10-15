@@ -7,6 +7,7 @@
   <a href="https://github.com/dmitrbrvsk/win-owa-widget/releases/latest"><strong>Скачать для Windows →</strong></a>
   &nbsp; · &nbsp; <a href="#быстрый-старт">Как подключиться</a>
   &nbsp; · &nbsp; <a href="docs/GUIDE.md">Руководство и FAQ</a>
+  &nbsp; · &nbsp; <a href="CHANGELOG.md">История изменений</a>
 </p>
 
 <p align="center"><sub>Windows 10/11 · x64 и ARM64 · Русский / English · Без прав администратора</sub></p>
