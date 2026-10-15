@@ -2,6 +2,15 @@
 import type { LanguagePref } from './types';
 
 const ru = {
+  calendarTitle: 'Календарь',
+  calendarExpand: 'Развернуть календарь',
+  calendarPickDay: 'Выбрать день',
+  calendarChooseMeeting: 'Выберите встречу',
+  calendarChooseHint: 'Нажмите на встречу в расписании: здесь появятся участники, описание, заметка и действия.',
+  calendarLoadedHint: 'Показаны только встречи, загруженные виджетом. Поиск работает локально.',
+  calendarEmptyDay: 'В загруженном календаре нет встреч на этот день',
+  calendarDayCount: (n: number) => `Встреч на выбранный день: ${n}`,
+
   groupsTitle: 'Группы участников',
   groupChoose: 'Выбрать группу…',
   groupsEmpty: 'Пока нет сохраненных групп',
@@ -405,6 +414,15 @@ type Dict = typeof ru;
 
 const en: Dict = {
   ...ru,
+  calendarTitle: 'Calendar',
+  calendarExpand: 'Expand calendar',
+  calendarPickDay: 'Choose a day',
+  calendarChooseMeeting: 'Choose a meeting',
+  calendarChooseHint: 'Select a meeting to see attendees, its description, your note and actions here.',
+  calendarLoadedHint: 'Only meetings already loaded by the widget are shown. Search stays local.',
+  calendarEmptyDay: 'No loaded meetings for this day',
+  calendarDayCount: (n: number) => `Meetings on this day: ${n}`,
+
   groupsTitle: 'Participant groups',
   groupChoose: 'Choose a group…',
   groupsEmpty: 'No saved groups yet',

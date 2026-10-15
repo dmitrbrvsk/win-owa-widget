@@ -2,6 +2,7 @@ import { Component, StrictMode, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
 import { PrivateCalendar } from './PrivateCalendar';
+import { Calendar } from './Calendar';
 import { Create } from './Create';
 import { Availability } from './Availability';
 import { Popup } from './Popup';
@@ -43,6 +44,7 @@ function App() {
   if (!snap) return null;
   if (snap.settings.privacyMode) return <PrivateCalendar snap={snap} />;
   const route = location.hash.replace(/^#\/?/, '').split('?')[0];
+  if (route === 'calendar') return <Calendar key={snap.participantGroups.account} snap={snap} />;
   if (route === 'settings') return <Settings snap={snap} />;
   if (route === 'welcome') return <Welcome snap={snap} />;
   if (route === 'reminder') return <Reminder snap={snap} />;

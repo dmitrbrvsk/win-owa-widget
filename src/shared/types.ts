@@ -334,6 +334,12 @@ export interface StatsRequest {
 }
 
 /** API exposed by the preload script as `window.owa`. */
+export interface CalendarSelection {
+  /** Local calendar date, YYYY-MM-DD. */
+  day?: string;
+  eventId?: string;
+}
+
 export interface OwaApi {
   setPrivacyMode(enabled: boolean): Promise<void>;
   saveParticipantGroup(account: string, input: ParticipantGroupInput): Promise<ParticipantGroup>;
@@ -376,6 +382,9 @@ export interface OwaApi {
   openSettings(): Promise<void>;
   /** Opens the free time search window. */
   openAvailability(): Promise<void>;
+  openCalendar(selection?: CalendarSelection): Promise<void>;
+  getCalendarSelection(): Promise<CalendarSelection | null>;
+  onCalendarSelection(cb: (selection: CalendarSelection) => void): () => void;
   /** Free/busy of the given people for one window (at most 14 days), plus the user's own mailbox when the server tells. */
   getAvailability(request: AvailabilityRequest): Promise<AvailabilityResult>;
   /** Opens the meeting statistics window. */
@@ -442,6 +451,9 @@ export const IPC = {
   openLog: 'owa:openLog',
   openSettings: 'owa:openSettings',
   openAvailability: 'owa:openAvailability',
+  openCalendar: 'owa:openCalendar',
+  getCalendarSelection: 'owa:getCalendarSelection',
+  calendarSelection: 'owa:calendarSelection',
   getAvailability: 'owa:getAvailability',
   openStats: 'owa:openStats',
   getStatsEvents: 'owa:getStatsEvents',

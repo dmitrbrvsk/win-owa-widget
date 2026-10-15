@@ -74,11 +74,12 @@ interface Props {
   t: Dict;
   lang: Lang;
   onClose: () => void;
+  onExpand?: () => void;
   onJoin: (e: CalendarEvent) => void;
   toast: (msg: string) => void;
 }
 
-export function Detail({ event, events, t, lang, onClose, onJoin, toast }: Props) {
+export function Detail({ event, events, t, lang, onClose, onExpand, onJoin, toast }: Props) {
   const [details, setDetails] = useState<EventDetails | null>(null);
   const [failed, setFailed] = useState(false);
   const [showAll, setShowAll] = useState(false);
@@ -170,6 +171,7 @@ export function Detail({ event, events, t, lang, onClose, onJoin, toast }: Props
           <Icon name="chevL" size={18} />
         </button>
         <h2 className={`grow${cancelled ? ' cancelled' : ''}`}>{displayTitle(event)}</h2>
+        {onExpand && <button className="icon-btn" title={t.calendarExpand} aria-label={t.calendarExpand} onClick={onExpand}><Icon name="expand" /></button>}
       </div>
 
       <div className="detail-body scroll">

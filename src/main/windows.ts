@@ -141,6 +141,25 @@ export function createMeetingWindow(theme: ThemePref): BrowserWindow {
   return win;
 }
 
+/** A normal Windows calendar window, initially maximized and freely resizable afterwards. */
+export function createCalendarWindow(theme: ThemePref): BrowserWindow {
+  const win = new BrowserWindow({
+    width: 1280,
+    height: 820,
+    minWidth: 900,
+    minHeight: 600,
+    show: false,
+    title: 'OWA Widget — календарь',
+    autoHideMenuBar: true,
+    backgroundColor: backgroundColor(theme),
+    webPreferences: webPreferences(),
+  });
+  win.setMenu(null);
+  load(win, 'calendar');
+  win.once('ready-to-show', () => { win.maximize(); win.show(); });
+  return win;
+}
+
 /** The free time search: a resizable window with the week grid; same hardening as the settings window. */
 export function createAvailability(theme: ThemePref): BrowserWindow {
   const win = new BrowserWindow({

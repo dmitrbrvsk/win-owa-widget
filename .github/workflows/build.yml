@@ -64,7 +64,7 @@ jobs:
       - run: yarn install --immutable
       - run: yarn setup:electron
       - run: yarn dist
-      # Opens the popup, the settings, the create-meeting and the free-time windows from source on a real
+      # Opens the popup and all calendar, settings, creation, free-time and statistics windows on a real
       # Windows desktop and fails if any page did not render (the IPC sender check compares file paths, which differ per OS).
       - name: Smoke test the windows on Windows
         shell: pwsh
@@ -72,7 +72,7 @@ jobs:
           New-Item -ItemType Directory -Force smoke | Out-Null
           $env:OWA_DEMO = '1'
           $env:OWA_SMOKE_SHOT = (Resolve-Path smoke).Path + '\popup.png'
-          # The app exits 0 only when all four pages rendered (see OWA_SMOKE_SHOT in src/main/index.ts).
+          # The app exits 0 only when all six pages rendered and the calendar is maximized (see OWA_SMOKE_SHOT in src/main/index.ts).
           yarn exec electron .
           if ($LASTEXITCODE -ne 0) { Write-Error "smoke failed with exit code $LASTEXITCODE"; exit 1 }
       # The built app, not the source tree: starts the unpacked .exe with a throwaway profile (no server

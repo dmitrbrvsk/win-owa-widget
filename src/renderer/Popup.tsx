@@ -12,6 +12,7 @@ import {
   sameDay,
   startOfDay,
 } from '../shared/events';
+import { calendarDateValue } from '../shared/calendar';
 import { conflictsOf } from '../shared/conflicts';
 import { urlHost } from '../shared/meetingUrl';
 import { searchEvents } from '../shared/search';
@@ -289,6 +290,7 @@ export function Popup({ snap }: { snap: Snapshot }) {
               )}
             </>
           )}
+          <button className="icon-btn small" title={t.calendarExpand} aria-label={t.calendarExpand} onClick={() => { void api.openCalendar({ day: calendarDateValue(day) }).catch(e => setToastMsg(ipcMessage(e))); }}><Icon name="expand" size={14} /></button>
           {(sync.phase === 'ok' || sync.phase === 'idle') && (
             <>
               <span className="grow">{ago === undefined || ago < 1 ? t.syncedJustNow : t.syncedAgo(duration(ago, t))}</span>
@@ -298,7 +300,7 @@ export function Popup({ snap }: { snap: Snapshot }) {
         </div>
       </div>
 
-      {open && <Detail event={snap.events.find((e) => e.id === open.id) ?? open} events={snap.events} t={t} lang={lang} onClose={() => setOpen(null)} onJoin={join} toast={toast} />}
+      {open && <Detail onExpand={() => { void api.openCalendar({ day: calendarDateValue(day), eventId: open.id }).catch(e => setToastMsg(ipcMessage(e))); }} event={snap.events.find((e) => e.id === open.id) ?? open} events={snap.events} t={t} lang={lang} onClose={() => setOpen(null)} onJoin={join} toast={toast} />}
       {toastMsg && (
         <div className="toast" role="status">
           {toastMsg}

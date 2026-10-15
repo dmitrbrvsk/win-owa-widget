@@ -21,9 +21,11 @@ interface Props {
   onJoin: (e: CalendarEvent) => void;
   /** Meetings the person has written a note on: they get a small pencil. */
   noteIds: string[];
+  emptyText?: string;
+  selectedId?: string | null;
 }
 
-export function Timeline({ events, day, now, workday, t, lang, onOpen, onJoin, noteIds }: Props) {
+export function Timeline({ events, day, now, workday, t, lang, onOpen, onJoin, noteIds, emptyText, selectedId }: Props) {
   const noted = useMemo(() => new Set(noteIds), [noteIds]);
   const ref = useRef<HTMLDivElement>(null);
   const isToday = sameDay(day, now);
@@ -48,6 +50,13 @@ export function Timeline({ events, day, now, workday, t, lang, onOpen, onJoin, n
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dayKey, blocks.length === 0]);
 
+  useLayoutEffect(() => {
+    const block = blocks.find(item => item.event.id === selectedId);
+    if (block && ref.current) ref.current.scrollTop = Math.max(0, y(block.startMin - 60));
+    // A selection scrolls once; background sync and clock ticks preserve the person's scroll position.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId, dayKey]);
+
   useEffect(() => {
     // keep layout stable on resize
   }, []);
@@ -59,7 +68,7 @@ export function Timeline({ events, day, now, workday, t, lang, onOpen, onJoin, n
 
   return (
     <div className="timeline scroll" ref={ref} role="list" aria-label="Meetings">
-      {!blocks.length && <div className="empty" style={{ position: 'absolute', inset: 0 }}>{t.noMeetings}</div>}
+      {!blocks.length && <div className="empty" style={{ position: 'absolute', inset: 0 }}>{emptyText ?? t.noMeetings}</div>}
       <div className="tl-inner" style={{ height: (lastHour - firstHour) * HOUR + 12, marginTop: 10 }}>
         {isToday && <div className="tl-slot" style={{ top: y(currentSlotStart), height: HOUR / 2 }} />}
         {hours.map((h) => (
@@ -86,7 +95,7 @@ export function Timeline({ events, day, now, workday, t, lang, onOpen, onJoin, n
           return (
             <div
               key={e.id}
-              className={`blk${past ? ' past' : ''}${isEffectivelyCancelled(e) ? ' cancelled' : ''}${e.responseType === 'tentative' ? ' tentative' : ''}${e.responseType === 'declined' ? ' declined' : ''}${b.lanes > 1 ? ' compact' : ''}`}
+              className={`blk${selectedId === e.id ? ' selected' : ''}${past ? ' past' : ''}${isEffectivelyCancelled(e) ? ' cancelled' : ''}${e.responseType === 'tentative' ? ' tentative' : ''}${e.responseType === 'declined' ? ' declined' : ''}${b.lanes > 1 ? ' compact' : ''}`}
               style={{ top, height, left: `calc(56px + ${colW} * ${b.lane} + 1px)`, width: `calc(${colW} - 3px)`, ['--c' as string]: eventColor(e) }}
               role="listitem"
               {...meetingMenuProps(e.id)}

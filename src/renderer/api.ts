@@ -3,7 +3,7 @@
 import { ParticipantGroupBook, participantGroupAccount } from '../shared/participantGroups';
 import { privateEvent } from '../shared/privacy';
 import { initialDiagnostics, supportReport } from '../shared/diagnostics';
-import type { ConnectionDiagnostics } from '../shared/types';
+import type { CalendarSelection, ConnectionDiagnostics } from '../shared/types';
 import { version as appVersion } from '../../package.json';
 import type { OwaApi, Snapshot, AppSettings } from '../shared/types';
 import { demoAvailability, demoDetails, demoEvents, demoPeople, demoStatsEvents } from '../main/demo';
@@ -42,6 +42,8 @@ function mockApi(): OwaApi {
     noteIds: [],
     participantGroups: { account: participantGroupAccount(settings.account), groups: [] },
   };
+  let calendarSelection: CalendarSelection | null = null;
+  const calendarListeners = new Set<(value: CalendarSelection) => void>();
   const groups = new ParticipantGroupBook();
   let diagnostic: ConnectionDiagnostics | undefined;
   const progress = new Set<(d: ConnectionDiagnostics) => void>();
@@ -124,6 +126,13 @@ function mockApi(): OwaApi {
     openWelcome: async () => void (location.hash = '#/welcome'),
     finishWelcome: async (openSettings) => void (location.hash = openSettings ? '#/settings' : '#/popup'),
     openAvailability: async () => void (location.hash = '#/availability'),
+    openCalendar: async (selection) => {
+      calendarSelection = selection ?? null;
+      if (selection) calendarListeners.forEach(cb => cb(selection));
+      location.hash = '#/calendar';
+    },
+    getCalendarSelection: async () => calendarSelection,
+    onCalendarSelection: cb => (calendarListeners.add(cb), () => calendarListeners.delete(cb)),
     getAvailability: async (r) => demoAvailability(r),
     openStats: async () => void (location.hash = '#/stats'),
     getStatsEvents: async (r) => demoStatsEvents(r),

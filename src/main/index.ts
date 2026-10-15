@@ -17,6 +17,8 @@ import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { privateEvent } from '../shared/privacy';
+import { calendarDateValue, parseCalendarSelection } from '../shared/calendar';
+import type { CalendarSelection } from '../shared/types';
 import { supportReport } from '../shared/diagnostics';
 import { UpdateChecker } from './updates';
 import { IPC, type CalendarEvent, type CreateMeetingInput, type CreateMeetingResult, type EditMeetingInput, type MeetingBefore, type MeetingReplyInput, type CreateMeetingPrefill, type ReminderPayload, type SettingsUpdate, type Snapshot } from '../shared/types';
@@ -38,7 +40,7 @@ import { drawTrayBitmap, TRAY_ICON_SIZE } from './trayRaster';
 import { trayPresentation } from '../shared/status';
 import { tooltipFor } from '../shared/trayTooltip';
 import { dict, type Lang } from '../shared/i18n';
-import { createAvailability, createMeetingWindow, createPopup, createReminder, createSettings, createStats, createWelcome, fitReminder, popupSize, positionPopup } from './windows';
+import { createCalendarWindow, createAvailability, createMeetingWindow, createPopup, createReminder, createSettings, createStats, createWelcome, fitReminder, popupSize, positionPopup } from './windows';
 import { MeetingGate, SlidingWindow } from './meetingGate';
 import { changedFields } from './owa/ewsMeeting';
 import { OwaError } from './owa/errors';
@@ -97,6 +99,8 @@ process.on('unhandledRejection', (e) => log.error(`unhandled rejection: ${descri
 
 let tray: Tray | undefined;
 let popup: BrowserWindow | undefined;
+let calendarWin: BrowserWindow | undefined;
+let pendingCalendarSelection: CalendarSelection | null = null;
 let settingsWin: BrowserWindow | undefined;
 let createWin: BrowserWindow | undefined;
 /** What the "Create meeting" window was last asked to start with; it asks for it when it opens. */
@@ -299,6 +303,25 @@ function togglePopup() {
   if (Date.now() - lastPopupHide < 250) return;
   if (popup?.isVisible()) hidePopup();
   else showPopup();
+}
+
+// ---------- Large calendar ----------
+
+function openCalendar(selection?: CalendarSelection) {
+  hidePopup();
+  if (calendarWin && !calendarWin.isDestroyed()) {
+    if (selection) {
+      pendingCalendarSelection = selection;
+      calendarWin.webContents.send(IPC.calendarSelection, selection);
+    }
+    if (calendarWin.isMinimized()) calendarWin.restore();
+    calendarWin.show();
+    calendarWin.focus();
+    return;
+  }
+  pendingCalendarSelection = selection ?? null;
+  calendarWin = createCalendarWindow(service.settings.theme);
+  calendarWin.on('closed', () => { calendarWin = undefined; pendingCalendarSelection = null; });
 }
 
 // ---------- Settings ----------
@@ -540,6 +563,7 @@ function updateTrayMenu() {
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: 'Открыть', click: showPopup },
+      { label: `${dict(uiLang()).calendarTitle}…`, click: () => openCalendar() },
       // A link to an unfamiliar site shows where it goes, as the buttons in the windows do.
       // The title is a stranger's text: one line, so it cannot run into the item's shortcut column or below it.
       ...join.map((e) => ({ label: `Подключиться${e.platform === 'generic' ? ` (${urlHost(joinUrlForActions(e)) ?? '?'})` : ''}: ${oneLine(displayTitle(e), 40)}`, click: () => void openExternal(joinUrlForActions(e)!) })),
@@ -784,7 +808,7 @@ function registerIpc() {
     if (service.settings.privacyMode) return;
     const eventId = parseId(id);
     const win = BrowserWindow.fromWebContents(e.sender);
-    if (win && win === popup) openMeetingMenu(win, eventId);
+    if (win && (win === popup || win === calendarWin)) openMeetingMenu(win, eventId);
   });
   handle(IPC.saveSettings, async (e, update) => {
     const next = service.serverChangeOf(update);
@@ -945,6 +969,12 @@ function registerIpc() {
     }
   });
   handle(IPC.openAvailability, () => openAvailability());
+  handle(IPC.openCalendar, (_e, raw) => {
+    const selection = parseCalendarSelection(raw);
+    if (selection.eventId && !service.events.some(event => event.id === selection.eventId)) throw new Error('Встреча не найдена: обновите календарь');
+    openCalendar(selection);
+  });
+  handle(IPC.getCalendarSelection, () => pendingCalendarSelection);
   // Validated here, whatever the page sent: at most 20 plain addresses, a window of at most 14 days.
   handle(IPC.getAvailability, (_e, request) => service.availability(parseAvailabilityRequest(request)));
   handle(IPC.openStats, () => openStats());
@@ -1085,11 +1115,16 @@ void app.whenReady().then(async () => {
         await new Promise((r) => setTimeout(r, 2500));
         writeFileSync(out.replace(/\.png$/i, '') + '-stats.png', (await statsWin!.webContents.capturePage()).toPNG());
         const statsOk = await statsWin!.webContents.executeJavaScript('!!document.querySelector(".stats")');
+        openCalendar({ day: calendarDateValue(new Date()), eventId: service.events.find(event => !event.isAllDay)?.id });
+        await new Promise((r) => setTimeout(r, 2500));
+        writeFileSync(out.replace(/\.png$/i, '') + '-calendar.png', (await calendarWin!.webContents.capturePage()).toPNG());
+        const calendarOk = await calendarWin!.webContents.executeJavaScript('!!document.querySelector(".calendar-view") && !!document.querySelector(".calendar-inspector .detail")');
+        const calendarMaximized = calendarWin!.isMaximized();
         const metrics = app.getAppMetrics().map((m) => `${m.type}${m.name ? `(${m.name})` : ''}=${Math.round(m.memory.workingSetSize / 1024)}MB`);
         const total = Math.round(app.getAppMetrics().reduce((a, m) => a + m.memory.workingSetSize, 0) / 1024);
         console.log(`SMOKE memory total=${total}MB ${metrics.join(' ')}`);
-        const all = popupOk && settingsOk && createOk && availabilityOk && statsOk;
-        console.log(`SMOKE ${all ? 'ok' : 'FAIL'} popup=${popupOk} settings=${settingsOk} create=${createOk} availability=${availabilityOk} stats=${statsOk} tray-tooltip="${lastTooltip.replace(/\n/g, ' | ')}" events=${service.events.length}`);
+        const all = popupOk && settingsOk && createOk && availabilityOk && statsOk && calendarOk && calendarMaximized;
+        console.log(`SMOKE ${all ? 'ok' : 'FAIL'} popup=${popupOk} settings=${settingsOk} create=${createOk} availability=${availabilityOk} stats=${statsOk} calendar=${calendarOk} maximized=${calendarMaximized} tray-tooltip="${lastTooltip.replace(/\n/g, ' | ')}" events=${service.events.length}`);
         app.exit(all ? 0 : 1);
       } catch (e) {
         console.log(`SMOKE FAIL ${describeError(e)}`);
