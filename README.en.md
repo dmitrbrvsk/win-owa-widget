@@ -144,6 +144,12 @@ Changing the server, trusting an internal certificate and writing meetings requi
 
 Privacy mode is available from the lock button, Settings and the tray menu. Connection diagnostics and **Copy support report** are available in Settings. Review the report before sharing it; raw diagnostic logs may contain internal server addresses or certificate details and need redaction.
 
+## In development: local MCP
+
+The source code includes a basic integration with local MCP clients. It is not yet part of the published 1.4.4 release. Access is off by default and requires native consent; meeting titles need a separate permission. Privacy mode also hides titles from MCP.
+
+A client reads only already loaded meetings and cannot change the calendar. A connected AI client may send this data to its provider: follow your company policy. The adapter needs a separate Node.js 24.22+ runtime within 24.x. [Connection setup and limits](docs/MCP.en.md).
+
 ## Documentation and support
 
 All of the following documents are available in English:

@@ -1,5 +1,8 @@
-// Bundles the Electron main process and the preload script with esbuild.
+// Bundles the Electron main process, preload and standalone Node MCP CLI with esbuild.
 import { build, context } from 'esbuild';
+import { copyFile, mkdir, readFile } from 'node:fs/promises';
+
+const { version } = JSON.parse(await readFile('package.json', 'utf8'));
 
 const watch = process.argv.includes('--watch');
 
@@ -19,6 +22,12 @@ const common = {
 const configs = [
     { ...common, entryPoints: ['src/main/index.ts'], outfile: 'dist/main/index.js' },
     { ...common, entryPoints: ['src/preload/index.ts'], outfile: 'dist/preload/index.js' },
+    {
+        ...common,
+        entryPoints: ['src/mcp/index.ts'],
+        outfile: 'dist/mcp/index.cjs',
+        define: { MCP_BUILD_VERSION: JSON.stringify(version) },
+    },
 ];
 
 await Promise.all(
@@ -31,3 +40,6 @@ await Promise.all(
         await ctx.watch();
     }),
 );
+
+await mkdir('dist/mcp', { recursive: true });
+await copyFile('THIRD_PARTY_NOTICES.txt', 'dist/mcp/THIRD_PARTY_NOTICES.txt');

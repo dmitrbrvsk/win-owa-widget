@@ -3,6 +3,7 @@
 import electronPath from 'electron';
 import { build } from 'esbuild';
 import { spawn } from 'node:child_process';
+import { copyFile, readFile } from 'node:fs/promises';
 import { createServer } from 'vite';
 
 const demo = process.argv.includes('--demo');
@@ -21,6 +22,14 @@ const common = {
 };
 await build({ ...common, entryPoints: ['src/main/index.ts'], outfile: 'dist/main/index.js' });
 await build({ ...common, entryPoints: ['src/preload/index.ts'], outfile: 'dist/preload/index.js' });
+const { version } = JSON.parse(await readFile('package.json', 'utf8'));
+await build({
+    ...common,
+    entryPoints: ['src/mcp/index.ts'],
+    outfile: 'dist/mcp/index.cjs',
+    define: { MCP_BUILD_VERSION: JSON.stringify(version) },
+});
+await copyFile('THIRD_PARTY_NOTICES.txt', 'dist/mcp/THIRD_PARTY_NOTICES.txt');
 
 const env = { ...process.env, VITE_DEV_URL: url };
 if (demo) env.OWA_DEMO = '1';

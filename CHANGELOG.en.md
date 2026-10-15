@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Local read-only MCP: loaded meeting times/status, separate title permission, native consent and revocation on account changes. See the [MCP guide](docs/MCP.en.md) for client setup.
+
 - Full English documentation, a bug report form and language links; the English README includes product demos.
 - MIT license, a safe bug report form, a short English README and compatibility information before installation.
 - Build, version and license badges, and direct links to available files in release descriptions.

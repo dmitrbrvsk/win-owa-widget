@@ -28,6 +28,7 @@
     },
     "devDependencies": {
         "@electron/fuses": "1.8.0",
+        "@modelcontextprotocol/server": "2.3.1",
         "@types/node": "^24.19.2",
         "@types/react": "^19.1.0",
         "@types/react-dom": "^19.1.0",
@@ -41,7 +42,8 @@
         "react-dom": "^19.1.0",
         "typescript": "^5.9.3",
         "vite": "^7.1.0",
-        "vitest": "^5.0.3"
+        "vitest": "^5.0.3",
+        "zod": "4.6.7"
     },
     "packageManager": "yarn@4.18.1+sha512.b2e1e7524f654f2749d32b4ebcb4622473cb5bcbc485df2007e12a154e50162a4d795526768bc5f5b8f81717bfd79deb2472813d86fb5ae2eb551fa9c872b08f",
     "engines": {

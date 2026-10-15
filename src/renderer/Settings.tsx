@@ -12,6 +12,7 @@ import {
 import { api } from './api';
 import { ConnectionDiagnostics } from './ConnectionDiagnostics';
 import { ipcMessage, useI18n } from './hooks';
+import { McpPanel } from './McpPanel';
 import { UpdateCheck } from './UpdateCheck';
 
 function Switch({
@@ -613,6 +614,8 @@ export function Settings({ snap }: { snap: Snapshot }) {
                     </button>
                 </div>
             </div>
+
+            <McpPanel key={snap.participantGroups.account} snap={snap} />
 
             <div className='settings-foot'>
                 <button

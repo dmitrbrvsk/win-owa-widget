@@ -61,6 +61,8 @@ import {
     parseUrlArg,
 } from '../shared/validate';
 
+import { createAppMcp } from './mcp/appMcp';
+import { type McpController } from './mcp/controller';
 import { OwaError } from './owa/errors';
 import { changedFields } from './owa/ewsMeeting';
 import { CalendarService } from './calendarService';
@@ -167,6 +169,7 @@ let meetingMenuOpenedAt = 0;
 /** A menu that never reports closing must not keep the popup from ever hiding again. */
 const MENU_GUARD_MS = 120_000;
 let service: CalendarService;
+let mcp: McpController;
 let reminders: ReminderScheduler;
 
 /** 16×16 calendar outline, used until the renderer draws the live icon. */
@@ -232,7 +235,6 @@ function readTaskbarTheme() {
         },
     );
 }
-
 // ---------- Links the app may open ----------
 
 /**
@@ -294,7 +296,6 @@ function broadcast() {
         if (!w.isDestroyed()) w.webContents.send(IPC.snapshot, s);
     updateTrayMenu();
 }
-
 // ---------- Popup ----------
 
 function ensurePopup(): BrowserWindow {
@@ -425,7 +426,6 @@ function togglePopup() {
     if (popup?.isVisible()) hidePopup();
     else showPopup();
 }
-
 // ---------- Large calendar ----------
 
 function openCalendar(selection?: CalendarSelection) {
@@ -447,7 +447,6 @@ function openCalendar(selection?: CalendarSelection) {
         pendingCalendarSelection = null;
     });
 }
-
 // ---------- Settings ----------
 
 function openSettings() {
@@ -470,7 +469,6 @@ function openSettingsForSetup() {
         if (!popup?.isVisible()) showPopup();
     });
 }
-
 // ---------- Create meeting ----------
 
 /**
@@ -1051,6 +1049,8 @@ function registerIpc() {
         if (!groupWrites.allows(Date.now())) throw new Error('Слишком часто: подождите секунду');
         groupWrites.take(Date.now());
     };
+    handle(IPC.getMcpState, () => mcp.state());
+    handle(IPC.setMcpAccess, (_e, access: unknown) => mcp.setAccess(access));
     handle(IPC.setPrivacyMode, (_e, enabled) => service.setPrivacyMode(enabled));
     handle(IPC.saveParticipantGroup, (_e, account, input) => {
         groupWrite();
@@ -1452,6 +1452,11 @@ void app.whenReady().then(async () => {
         refreshTray();
     });
     service.start();
+    mcp = await createAppMcp(
+        service,
+        async (options) => (await askNative(options, settingsWin ?? undefined)) === 1,
+        () => uiLang() === 'en',
+    );
 
     reminders = new ReminderScheduler(
         () => service.events,

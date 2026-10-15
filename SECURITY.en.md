@@ -27,7 +27,7 @@ Download only from this repository's [Releases](https://github.com/dmitrbrvsk/wi
 
 ## How the app handles your data
 
-- Calendar data and credentials are sent only to the Exchange server configured in Settings. The separate exception is the manual “Check for updates” button: it requests the latest release from `api.github.com`. There are no update requests before you click, no telemetry and no automatic installation. Interface pages disallow all network connections (`connect-src 'none'`).
+- With MCP disabled, calendar data and credentials are sent only to the Exchange server configured in Settings. The opt-in MCP exception is described below; it never exposes credentials. The separate exception is the manual “Check for updates” button: it requests the latest release from `api.github.com`. There are no update requests before you click, no telemetry and no automatic installation. Interface pages disallow all network connections (`connect-src 'none'`).
 - Exchange requests use HTTPS and stay on the same server. The initial request, every redirect and every authentication request must use `https://` and the configured host **and port**. An address using `http://`, another host or another port is rejected before sending, so the password and session are not sent to another server or in cleartext.
 - The password is encrypted by Windows using DPAPI and stored in the user profile. If encryption is unavailable, the password is not saved at all. The meeting cache uses the same encryption.
 - **The password is bound to its server.** The encrypted file stores the password with the server address it was entered for. The app will not send it to any other address, even if the settings file has been changed. A password saved by a version before 0.2.0 (which did not store the server alongside it) is not used and is deleted on first launch; it must be entered again. Binding it to the current address in the settings file would send it to a server the user had not confirmed.
@@ -40,6 +40,14 @@ Download only from this repository's [Releases](https://github.com/dmitrbrvsk/wi
 - **Personal meeting notes** are stored only in an encrypted profile file, using the same mechanism as the cache. They are not sent to Exchange or anywhere else, through requests or the log. If encryption is unavailable, the note is not saved and the user is notified. Limits: up to 5000 characters per note, at most 500 notes and 60 writes per minute. A note is accepted only for a meeting in the synchronized list; notes for meetings more than 92 days old are deleted automatically. “Delete all notes” in Settings requires native confirmation.
 - “Reset cache” (Settings → Diagnostics) deletes the saved meeting list and server session. Password, certificate and settings remain.
 - Administrator rights are required neither for installation nor for use. Uninstalling through the installer removes settings, encrypted password, cache and log.
+
+## Local MCP (unreleased source code)
+
+MCP is off by default. Enabling reading or widening title access requires a native confirmation; disabling takes effect immediately. Only loaded meeting times/status and optionally titles are exposed. Privacy mode hides titles and disables title search. No attendees, descriptions, locations, links, notes, Exchange ids, credentials or write operations are exposed. Account changes revoke access.
+
+The standard MCP transport is stdio through a separate Node 24.22+ CLI. An internal authenticated loopback bridge has strict Host/Origin checks, bounded input/output and timeouts. Connection secrets never enter the interface or copied configuration. Requests and request-bound responses use AES-256-GCM with fresh nonces. Windows protection depends on inherited user-profile ACLs; code running as the same user or administrator can read the key. This does not protect against a compromised user account.
+
+**Enabling MCP allows calendar data to leave the widget for the connected client.** That client may send it to its AI provider or log it. Previously delivered data cannot be recalled. Check company policy and client settings before granting access. Setup, limitations and safe troubleshooting: [MCP guide](docs/MCP.en.md). This feature is not included in the published 1.4.4 release.
 
 ## Untrusted text
 

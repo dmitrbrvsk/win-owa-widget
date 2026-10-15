@@ -1,4 +1,6 @@
 // Types shared by the main process, the preload bridge and the renderer.
+import { type McpApi } from './mcp';
+
 export const RENDERER_READY_MESSAGE = 'OWA_WIDGET_RENDERER_READY';
 
 export type MeetingPlatform = 'teams' | 'zoom' | 'webex' | 'googleMeet' | 'ktalk' | 'generic';
@@ -356,7 +358,7 @@ export interface CalendarSelection {
     eventId?: string;
 }
 
-export interface OwaApi {
+export interface OwaApi extends McpApi {
     setPrivacyMode(enabled: boolean): Promise<void>;
     saveParticipantGroup(account: string, input: ParticipantGroupInput): Promise<ParticipantGroup>;
     deleteParticipantGroup(account: string, id: string): Promise<void>;
@@ -439,6 +441,8 @@ export interface OwaApi {
 }
 
 export const IPC = {
+    getMcpState: 'owa:getMcpState',
+    setMcpAccess: 'owa:setMcpAccess',
     setPrivacyMode: 'owa:setPrivacyMode',
     saveParticipantGroup: 'owa:saveParticipantGroup',
     deleteParticipantGroup: 'owa:deleteParticipantGroup',

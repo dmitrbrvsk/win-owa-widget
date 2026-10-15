@@ -1,13 +1,6 @@
-// `window.owa` comes from the preload script. In a plain browser (`vite` without Electron, used
-// for UI work and screenshots) a mock with demo meetings stands in.
+// The preload supplies window.owa; browser-only UI work uses a demo mock instead.
 import { version as appVersion } from '../../package.json';
-import {
-    demoAvailability,
-    demoDetails,
-    demoEvents,
-    demoPeople,
-    demoStatsEvents,
-} from '../main/demo';
+import * as demo from '../main/demo';
 import { initialDiagnostics, supportReport } from '../shared/diagnostics';
 import { participantGroupAccount, ParticipantGroupBook } from '../shared/participantGroups';
 import { privateEvent } from '../shared/privacy';
@@ -18,6 +11,8 @@ import {
     type OwaApi,
     type Snapshot,
 } from '../shared/types';
+
+import { mockMcpApi } from './mcpMock';
 
 declare global {
     interface Window {
@@ -48,7 +43,7 @@ function mockApi(): OwaApi {
         privacyMode: false,
     };
     let snap: Snapshot = {
-        events: demoEvents(),
+        events: demo.demoEvents(),
         sync: { phase: 'ok', lastSuccess: new Date().toISOString() },
         settings,
         demo: true,
@@ -90,6 +85,7 @@ function mockApi(): OwaApi {
     };
     window.addEventListener('hashchange', emit);
     return {
+        ...mockMcpApi(),
         getSnapshot: async () => view(),
         setPrivacyMode: async (enabled) => {
             snap = { ...snap, settings: { ...snap.settings, privacyMode: enabled } };
@@ -128,7 +124,7 @@ function mockApi(): OwaApi {
             snap = { ...snap, sync: { phase: 'ok', lastSuccess: new Date().toISOString() } };
             emit();
         },
-        getDetails: async (id) => demoDetails(snap.events.find((e) => e.id === id)!),
+        getDetails: async (id) => demo.demoDetails(snap.events.find((e) => e.id === id)!),
         respond: async (id, action) => {
             snap = {
                 ...snap,
@@ -245,11 +241,11 @@ function mockApi(): OwaApi {
                 calendarListeners.delete(cb);
             };
         },
-        getAvailability: async (r) => demoAvailability(r),
+        getAvailability: async (r) => demo.demoAvailability(r),
         openStats: async () => {
             void (location.hash = '#/stats');
         },
-        getStatsEvents: async (r) => demoStatsEvents(r),
+        getStatsEvents: async (r) => demo.demoStatsEvents(r),
         closeWindow: async () => {},
         quit: async () => {},
         onReminder: () => () => {},
@@ -281,7 +277,7 @@ function mockApi(): OwaApi {
             await new Promise<void>((r) => {
                 setTimeout(r, 150);
             });
-            return demoPeople(q);
+            return demo.demoPeople(q);
         },
         createMeeting: async (input) => {
             await new Promise<void>((r) => {

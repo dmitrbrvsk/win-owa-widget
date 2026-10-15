@@ -131,7 +131,14 @@ export default defineConfig(eslintConfig, [
         },
     },
     {
-        files: ['src/main/**/*.ts', 'src/preload/**/*.ts', 'scripts/*.mjs', 'test/*.ts', '*.mjs'],
+        files: [
+            'src/main/**/*.ts',
+            'src/mcp/**/*.ts',
+            'src/preload/**/*.ts',
+            'scripts/*.mjs',
+            'test/*.ts',
+            '*.mjs',
+        ],
         languageOptions: { globals: globals.node },
     },
     {

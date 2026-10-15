@@ -9,7 +9,13 @@ files:
   - dist/**/*
   - package.json
   - LICENSE
+  - THIRD_PARTY_NOTICES.txt
+  - "!dist/mcp/**/*"
   - "!**/*.map"
+extraResources:
+  - from: dist/mcp
+    to: mcp
+    filter: ["*.cjs", "THIRD_PARTY_NOTICES.txt"]
 # Switch off what an attacker could use to turn the app into a general-purpose Node runtime.
 electronFuses:
   runAsNode: false
