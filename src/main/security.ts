@@ -1,17 +1,9 @@
 // Electron hardening shared by every window: who may talk to the main process, what a window may
 // navigate to or open, and which permissions a page can get.
 import { app, session, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from 'electron';
-import { fileURLToPath } from 'node:url';
-import { join, resolve } from 'node:path';
+import { RENDERER_READY_MESSAGE } from '../shared/types';
+import { isRendererPageUrl } from './rendererProtocol';
 import { log, originForLog } from './log';
-
-const PAGE = resolve(join(__dirname, '../renderer/index.html'));
-
-/** Normalised for comparison: Windows paths are case-insensitive and may differ in slashes. */
-function canonical(p: string): string {
-  const r = resolve(p);
-  return process.platform === 'win32' ? r.toLowerCase() : r;
-}
 
 /** The only documents allowed to call into the main process. */
 export function isTrustedUrl(raw: string): boolean {
@@ -20,9 +12,7 @@ export function isTrustedUrl(raw: string): boolean {
     const u = new URL(raw);
     // Origins, not a text prefix: "http://localhost:5199@evil.example/" starts with the dev URL and is another site.
     if (dev && u.origin === new URL(dev).origin) return true;
-    if (u.protocol !== 'file:') return false;
-    // Compare as file paths, not URL strings: Chromium and Node percent-encode and case paths differently.
-    return canonical(fileURLToPath(u)) === canonical(PAGE);
+    return isRendererPageUrl(raw);
   } catch {
     return false;
   }
@@ -36,7 +26,7 @@ export function isTrustedSender(e: IpcMainEvent | IpcMainInvokeEvent): boolean {
     return false;
   }
   if (!isTrustedUrl(frame.url)) {
-    log.warn(`ipc: rejected message from ${originForLog(frame.url)}; expected ${PAGE}`);
+    log.warn(`ipc: rejected message from ${originForLog(frame.url)}; expected the bundled renderer origin`);
     return false;
   }
   return true;
@@ -66,6 +56,10 @@ export function hardenWebContents(contents: WebContents) {
 
   // Whatever goes wrong inside a window ends up in the log instead of a silently blank page.
   contents.on('console-message', (ev) => {
+    if (ev.level === 'info' && ev.message === RENDERER_READY_MESSAGE && isTrustedUrl(contents.getURL())) {
+      log.info('renderer ready');
+      return;
+    }
     if (ev.level === 'error' || ev.level === 'warning') log.warn(`renderer: ${ev.message} (${ev.sourceId}:${ev.lineNumber})`);
   });
   contents.on('render-process-gone', (_e, details) => log.error(`renderer gone: ${details.reason} (exit ${details.exitCode})`));

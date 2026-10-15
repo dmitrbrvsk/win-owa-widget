@@ -64,8 +64,10 @@ jobs:
       - run: yarn install --immutable
       - run: yarn setup:electron
       - run: yarn dist
+      - name: Verify the packaged Electron fuses
+        run: node scripts/check-fuses.mjs "release/win-unpacked/OWA Widget.exe" "release/win-arm64-unpacked/OWA Widget.exe"
       # Opens the popup and all calendar, settings, creation, free-time and statistics windows on a real
-      # Windows desktop and fails if any page did not render (the IPC sender check compares file paths, which differ per OS).
+      # Windows desktop and fails if any page did not render (including the private renderer origin and its IPC sender check).
       - name: Smoke test the windows on Windows
         shell: pwsh
         run: |
@@ -95,6 +97,7 @@ jobs:
           if (-not $log) { Write-Error 'the packaged app wrote no log'; exit 1 }
           $text = Get-Content $log.FullName -Raw
           if ($text -notmatch 'start: OWA Widget') { Write-Error 'no start entry in the log'; exit 1 }
+          if ($text -notmatch 'renderer ready') { Write-Error 'the packaged UI did not render with CSS and a working preload bridge'; exit 1 }
           if ($text -match 'page failed to load|renderer gone|preload error|ipc: rejected|uncaught|unhandled') { Write-Error 'the log reports a failure'; exit 1 }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()

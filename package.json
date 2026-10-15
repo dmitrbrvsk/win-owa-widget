@@ -1,7 +1,7 @@
 {
   "name": "win-owa-widget",
   "productName": "OWA Widget",
-  "version": "1.4.3",
+  "version": "1.4.4",
   "description": "Exchange / OWA meetings in the Windows tray: timeline, one-click join, reminders, RSVP",
   "author": "Dmitry Borovskiy",
   "license": "MIT",
@@ -21,6 +21,7 @@
     "setup:electron": "node node_modules/electron/install.js"
   },
   "devDependencies": {
+    "@electron/fuses": "1.8.0",
     "@types/node": "^24.19.2",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",

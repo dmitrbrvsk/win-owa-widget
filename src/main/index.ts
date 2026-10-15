@@ -45,11 +45,13 @@ import { MeetingGate, SlidingWindow } from './meetingGate';
 import { changedFields } from './owa/ewsMeeting';
 import { OwaError } from './owa/errors';
 import { isFirstRun } from './store';
+import { registerRendererScheme, installRendererProtocol } from './rendererProtocol';
 import { closeAllToasts, showToast, toastsSupported } from './toasts';
 
 // Demo data and the screenshot hook are developer tools: an installed build ignores them.
 const DEMO = !app.isPackaged && (process.env.OWA_DEMO === '1' || process.argv.includes('--demo'));
 
+registerRendererScheme();
 app.setAppUserModelId('com.dmitrbrvsk.owawidget');
 
 // A tray widget has nothing for a GPU to do: software rendering inside the browser process drops
@@ -1063,6 +1065,7 @@ void app.whenReady().then(async () => {
   }
   log.info(`start: OWA Widget ${VERSION}, electron ${process.versions.electron}, ${process.platform} ${process.arch}, packaged=${app.isPackaged}${DEMO ? ', demo' : ''}`);
   Menu.setApplicationMenu(null); // no default menu: no Reload/DevTools accelerators in any window
+  installRendererProtocol();
   hardenSession();
   const firstRun = isFirstRun();
   service = new CalendarService(DEMO);

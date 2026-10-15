@@ -18,10 +18,8 @@ electronFuses:
   onlyLoadAppFromAsar: true
   # The app code is checked against a hash inside the .exe: a changed app.asar does not start.
   enableEmbeddedAsarIntegrityValidation: true
-  # grantFileProtocolExtraPrivileges stays at its default (on), and not by oversight: measured with it
-  # off, every file:// origin becomes opaque, so Chromium refuses the renderer's own module script and
-  # stylesheet as cross-origin and all four windows come up blank. Turning it off needs the UI served
-  # from a custom protocol first; SECURITY.md records the weaker 'self' until then.
+  # The UI is served from owa-widget://app, so file:// needs no extra privileges.
+  grantFileProtocolExtraPrivileges: false
 # Only the languages the app speaks: the other fifty Chromium translation files are dead weight.
 electronLanguages: [ru, en-US, en-GB]
 win:

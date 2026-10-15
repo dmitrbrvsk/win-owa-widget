@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { EventEmitter } from 'node:events';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import { describe, expect, it, vi } from 'vitest';
 import type { CalendarService } from '../src/main/calendarService';
@@ -20,6 +20,7 @@ function harness(demo: boolean) {
   const electron = {
     app: { isPackaged: true, getVersion: () => 'test', getPath: () => '/audit-profile', getLocale: () => 'en', setAppUserModelId: () => {}, disableHardwareAcceleration: () => {}, commandLine: { appendSwitch: () => {} }, on: () => {}, whenReady: () => new Promise(() => {}) },
     ipcMain: { handle: (key: string, fn: (...args: unknown[]) => unknown) => handlers.set(key, fn), on: () => {} },
+    protocol: { registerSchemesAsPrivileged: () => {}, handle: () => {} },
     shell: { openExternal: opened }, dialog: { showMessageBox: confirm },
     BrowserWindow: { getAllWindows: () => [], fromWebContents: () => undefined }, Notification: { isSupported: () => false },
     session: { fromPartition: () => ({ clearAuthCache: async () => {}, closeAllConnections: async () => {}, clearStorageData: async () => {}, setUserAgent: () => {}, allowNTLMCredentialsForDomains: () => {}, setCertificateVerifyProc: () => {}, cookies: { get: async () => [] } }) },
@@ -33,7 +34,7 @@ function harness(demo: boolean) {
   const mod = { exports: {} as { auditBoot: (demo: boolean) => CalendarService } };
   vm.runInNewContext(bundle, { module: mod, exports: mod.exports, require: (name: string) => name === 'electron' ? electron : name === 'node:fs' ? fs : require(name), __dirname: join(root, 'dist/main'), __filename: join(root, 'dist/main/index.js'), Buffer, URL, URLSearchParams, AbortController, process: { platform: 'darwin', versions: process.versions, pid: process.pid, env: {}, argv: ['audit'], on: () => {} }, setTimeout, clearTimeout, setInterval, clearInterval, console, structuredClone }, { timeout: 5000 });
   const service = mod.exports.auditBoot(demo);
-  const frame = { url: pathToFileURL(join(root, 'dist/renderer/index.html')).href + '#/popup' };
+  const frame = { url: 'owa-widget://app/index.html#/popup' };
   const event = { senderFrame: frame, sender: { mainFrame: frame, isDestroyed: () => false, send: () => {} } };
   const call = async <T = unknown>(key: string, ...args: unknown[]): Promise<T> => await handlers.get('owa:' + key)!(event, ...args) as T;
   return { service, call, opened, confirm, requests: () => requests };

@@ -1,4 +1,5 @@
 // Types shared by the main process, the preload bridge and the renderer.
+export const RENDERER_READY_MESSAGE = 'OWA_WIDGET_RENDERER_READY';
 
 export type MeetingPlatform = 'teams' | 'zoom' | 'webex' | 'googleMeet' | 'ktalk' | 'generic';
 

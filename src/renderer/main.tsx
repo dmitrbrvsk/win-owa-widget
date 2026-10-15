@@ -1,4 +1,4 @@
-import { Component, StrictMode, type ReactNode } from 'react';
+import { Component, StrictMode, useEffect, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
 import { PrivateCalendar } from './PrivateCalendar';
@@ -11,6 +11,7 @@ import { Settings } from './Settings';
 import { Stats } from './Stats';
 import { Welcome } from './Welcome';
 import { useSnapshot, useTheme } from './hooks';
+import { RENDERER_READY_MESSAGE } from '../shared/types';
 
 function Trouble({ title, text }: { title: string; text: string }) {
   return (
@@ -40,6 +41,11 @@ class Boundary extends Component<{ children: ReactNode }, { error?: Error }> {
 function App() {
   const { snap, error } = useSnapshot();
   useTheme(snap);
+  const ready = !!snap && !error;
+  useEffect(() => {
+    // Packaged startup checks verify JS, CSS and the preload bridge, not just a living process.
+    if (ready && document.styleSheets.length > 0) console.info(RENDERER_READY_MESSAGE);
+  }, [ready]);
   if (error) return <Trouble title="Нет связи с приложением" text={error} />;
   if (!snap) return null;
   if (snap.settings.privacyMode) return <PrivateCalendar snap={snap} />;

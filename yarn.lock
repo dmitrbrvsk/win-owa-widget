@@ -229,7 +229,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@electron/fuses@npm:^1.8.0":
+"@electron/fuses@npm:1.8.0, @electron/fuses@npm:^1.8.0":
   version: 1.8.0
   resolution: "@electron/fuses@npm:1.8.0"
   dependencies:
@@ -4073,6 +4073,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "win-owa-widget@workspace:."
   dependencies:
+    "@electron/fuses": "npm:1.8.0"
     "@types/node": "npm:^24.19.2"
     "@types/react": "npm:^19.1.0"
     "@types/react-dom": "npm:^19.1.0"

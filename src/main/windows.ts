@@ -1,6 +1,7 @@
 // Popup at the tray, settings window, reminder toast window.
 import { app, BrowserWindow, nativeTheme, screen, type Rectangle } from 'electron';
 import { join } from 'node:path';
+import { rendererPageUrl } from './rendererProtocol';
 import type { PopupSize, ThemePref } from '../shared/types';
 
 const POPUP_SIZES: Record<PopupSize, { width: number; height: number }> = {
@@ -9,16 +10,10 @@ const POPUP_SIZES: Record<PopupSize, { width: number; height: number }> = {
   large: { width: 460, height: 780 },
 };
 
-function rendererUrl(route: string): { url?: string; file?: string; hash: string } {
-  // The dev server URL is honoured only when running from source, never in an installed build.
-  const dev = app.isPackaged ? undefined : process.env.VITE_DEV_URL;
-  return dev ? { url: `${dev}/#/${route}`, hash: route } : { file: join(__dirname, '../renderer/index.html'), hash: `/${route}` };
-}
-
 function load(win: BrowserWindow, route: string) {
-  const target = rendererUrl(route);
-  if (target.url) void win.loadURL(target.url);
-  else void win.loadFile(target.file!, { hash: target.hash });
+  // The dev server is accepted only when running from source.
+  const dev = app.isPackaged ? undefined : process.env.VITE_DEV_URL;
+  void win.loadURL(dev ? `${dev}/#/${route}` : rendererPageUrl(route));
 }
 
 const webPreferences = () => ({

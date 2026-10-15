@@ -1,31 +1,29 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { IpcMainInvokeEvent, WebContents } from 'electron';
-import { fileURLToPath } from 'node:url';
-const state = vi.hoisted(() => ({ packaged: true, warn: vi.fn(), permissionRequest: vi.fn(), permissionCheck: vi.fn() }));
+const state = vi.hoisted(() => ({ packaged: true, warn: vi.fn(), info: vi.fn(), permissionRequest: vi.fn(), permissionCheck: vi.fn() }));
 vi.mock('electron', () => ({ app: { get isPackaged() { return state.packaged; } }, session: { defaultSession: { setPermissionRequestHandler: state.permissionRequest, setPermissionCheckHandler: state.permissionCheck } } }));
 vi.mock('../src/main/log', async () => {
   const real = await vi.importActual<typeof import('../src/main/log')>('../src/main/log');
-  return { ...real, log: { warn: state.warn, error: vi.fn() } };
+  return { ...real, log: { warn: state.warn, info: state.info, error: vi.fn() } };
 });
 import { hardenSession, hardenWebContents, isTrustedSender, isTrustedUrl } from '../src/main/security';
-const page = new URL('../src/renderer/index.html', import.meta.url).href;
+const page = 'owa-widget://app/index.html';
 const oldDev = process.env.VITE_DEV_URL;
 beforeEach(() => { state.packaged = true; vi.clearAllMocks(); delete process.env.VITE_DEV_URL; });
 afterEach(() => { if (oldDev === undefined) delete process.env.VITE_DEV_URL; else process.env.VITE_DEV_URL = oldDev; });
-function contents() {
+function contents(url = page) {
   const listeners = new Map<string, (...args: unknown[]) => void>();
   let opening!: (details: { url: string }) => { action: string };
-  const wc = { setWindowOpenHandler: (fn: typeof opening) => { opening = fn; }, on: (name: string, fn: (...args: unknown[]) => void) => { listeners.set(name, fn); } };
+  const wc = { getURL: () => url, setWindowOpenHandler: (fn: typeof opening) => { opening = fn; }, on: (name: string, fn: (...args: unknown[]) => void) => { listeners.set(name, fn); } };
   hardenWebContents(wc as unknown as WebContents);
   return { listeners, opening: (url: string) => opening({ url }) };
 }
 describe('Electron trust boundaries', () => {
-  it('accepts only the shipped renderer file in a packaged build', () => {
+  it('accepts only the shipped renderer origin in a packaged build', () => {
     expect(isTrustedUrl(page + '#/calendar')).toBe(true);
-    expect(isTrustedUrl(page + '?state=ok#/popup')).toBe(true);
+    expect(isTrustedUrl(page + '?state=ok#/popup')).toBe(false);
     process.env.VITE_DEV_URL = 'http://localhost:5199';
     for (const value of ['https://evil.example', 'http://localhost:5199/', page.replace('index.html', 'other.html'), page + '/extra', 'data:text/html,hello', 'javascript:alert(1)', 'file:///etc/passwd']) expect(isTrustedUrl(value)).toBe(false);
-    expect(fileURLToPath(page)).toContain('/src/renderer/index.html');
   });
   it('compares development origins rather than string prefixes', () => {
     state.packaged = false; process.env.VITE_DEV_URL = 'http://localhost:5199';
@@ -58,4 +56,12 @@ describe('Electron trust boundaries', () => {
     wc.listeners.get('will-frame-navigate')!({ preventDefault, url });
     expect(JSON.stringify(state.warn.mock.calls)).not.toContain('PRIVATE_');
   });
+});
+
+it('recognizes UI readiness only from a trusted page', () => {
+  const event = { level: 'info', message: 'OWA_WIDGET_RENDERER_READY' };
+  contents().listeners.get('console-message')!(event);
+  expect(state.info).toHaveBeenCalledWith('renderer ready'); state.info.mockClear();
+  contents('https://evil.example').listeners.get('console-message')!(event);
+  expect(state.info).not.toHaveBeenCalled();
 });
