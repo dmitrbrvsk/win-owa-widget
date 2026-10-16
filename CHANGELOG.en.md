@@ -8,34 +8,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-### Added
+## [1.5.0] — 2026-10-16
 
-- Local read-only MCP: loaded meeting times/status, separate title permission, native consent and revocation on account changes. See the [MCP guide](docs/MCP.en.md) for client setup.
+### New features
 
-- Full English documentation, a bug report form and language links; the English README includes product demos.
-- MIT license, a safe bug report form, a short English README and compatibility information before installation.
-- Build, version and license badges, and direct links to available files in release descriptions.
-- ESLint, Stylelint and Prettier from `arui-presets-lint`, checking and formatting commands, and a required CI check.
+- Local read-only MCP: a connected client can check synchronization status, list loaded meeting times, search permitted titles and retrieve a meeting's allowed fields. Native consent is required; titles need a separate permission, privacy mode hides them and account changes revoke access. [MCP setup](docs/MCP.en.md).
+- Recovery for older participant groups and notes: ordinary manual accounts migrate automatically; ambiguous records can be assigned to the selected account through native confirmation.
 
-### Fixed
+### Security and data preservation
 
-- Fixed the owner collision between Windows SSO and a manual `windows` login: versioned keys separate server, sign-in mode and principal. Groups and notes migrate with encrypted originals preserved; ambiguous records require native consent and can be assigned to only one account. Legacy cache is resynced and MCP requires fresh consent.
+- Windows SSO and a manual `windows` login no longer share an owner key. Server, sign-in mode and principal are separate; one legacy source cannot be assigned to two accounts.
+- Encrypted originals are preserved during migration. Only the reserved owner can resume an interrupted migration; edits remain blocked until completion. Current notes win conflicts and duplicate group names receive a numeric suffix. Unreadable files are not overwritten; ownerless notes remain separate.
+- Certificate consent is bound to the displayed server, fingerprint and account revision. Switching accounts during note-deletion consent cannot delete the replacement account's notes.
+- An unavailable manual password stops the connection instead of falling back to Windows SSO under a different cache owner.
+- JSON structure and parser work are bounded before expensive processing. Invalid MCP requests cannot consume the authenticated operation quota; slow headers and body streams have an absolute deadline.
+- Updated KaTeX and added tested local fixes for `braces` and `sprintf-js` in development-tool dependencies.
+
+### Performance and reliability
 
 - Availability preserves manual scrolling during clock and calendar updates, while handling local date and timezone changes.
-- Sync status updates no longer copy the entire calendar into every window; account/privacy changes and invitation responses still replace the affected data.
-- Very dense days use a 50-meeting paginated list with totals and navigation; all-day meetings are paginated too. Overlap layout uses priority queues instead of scanning every column.
-- Production JS is minified; MCP includes only the used English Zod locale while preserving validation. Screens load separately, and browser demo builds use `yarn build:browser-demo`.
+- Synchronization status updates no longer copy the entire calendar into every window. Account/privacy changes and invitation responses still refresh the affected data.
+- Very dense days and all-day meetings use 50-record pages with totals. All meetings remain accessible; overlap layout uses priority queues instead of scanning columns.
+- Date formatting reuses formatters. Production JS is minified, screens load separately and MCP keeps only the used English Zod locale while preserving validation. Browser demos use the separate `yarn build:browser-demo` command.
+- Opening a meeting from a notification waits for the interface to become ready, including on a cold window.
 
-- Certificate consent cannot approve a different fingerprint or account after a pending-certificate change.
-- A password-read failure cannot change the authentication mode under a different cache owner; account changes during deletion consent cannot delete the replacement account's notes.
-- Notes are isolated per account; ownerless legacy notes are preserved separately. Unreadable notes/groups cannot be silently overwritten.
-- JSON structure and actual traversal work are bounded before expensive allocations; time/date formatting reuses formatters and avoids repeated time formatter construction.
-- Invalid MCP requests do not consume the authenticated quota; slow headers and body streams have an absolute deadline.
+### Documentation and development
 
-- Consistent code formatting; clarified React hook dependencies, list keys and interface handlers. Icons use JSX instead of inserted HTML.
-- Updated KaTeX and patched numeric precision in `sprintf-js`; build-tool security advisories are covered by regression tests.
-- A local `braces` patch bounds pattern nesting; added regression checks for this development-tool dependency.
-- Removed outdated duplicate release instructions; the safe support report is now the standard way to report problems.
+- Added the MIT LICENSE, complete English documentation and safe bug-report forms. Compatibility, build/version/license badges and direct release-file links are visible before installation.
+- Added `arui-presets-lint`, consistent formatting and required CI checks. Kept one current release guide and paired release-note templates.
+
+### Updating
+
+- Legacy calendar cache is fetched from the server again. MCP grants stored under the old owner are not restored: grant consent again if needed.
+- Ambiguous groups and notes remain separate until you choose “Recover for the current account” in Settings. The older ownerless `notes.bin` is not imported. [Data migration](docs/GUIDE.en.md#migrating-older-account-data).
+- MCP is off by default, reads only loaded meetings and requires a separate Node.js 24.22+ runtime within 24.x. An empty result does not prove free time. A connected client may forward permitted data to its provider.
 
 ## [1.4.4] — 2026-10-16
 
@@ -140,7 +146,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - First-run introduction, light and dark themes, and Russian and English interfaces.
 - RSVP result confirmation and protection against automatic resending when meeting creation has an uncertain outcome.
 
-[Unreleased]: https://github.com/dmitrbrvsk/win-owa-widget/compare/v1.4.4...master
+[Unreleased]: https://github.com/dmitrbrvsk/win-owa-widget/compare/v1.5.0...master
+[1.5.0]: https://github.com/dmitrbrvsk/win-owa-widget/releases/tag/v1.5.0
 [1.4.4]: https://github.com/dmitrbrvsk/win-owa-widget/releases/tag/v1.4.4
 [1.4.3]: https://github.com/dmitrbrvsk/win-owa-widget/releases/tag/v1.4.3
 [1.4.2]: https://github.com/dmitrbrvsk/win-owa-widget/releases/tag/v1.4.2

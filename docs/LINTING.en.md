@@ -27,4 +27,4 @@ After applying automatic fixes, review the diff and run type checks and tests. S
 
 The preset's standard formatting command covers TS/JS, CSS and JSON. It does not rewrite Markdown, YAML or HTML. The app's HTML deliberately preserves the exact Content Security Policy.
 
-The [dependency patch notes](../.yarn/patches/README.en.md) explain the local transitive dependency fix and the single audit exception.
+The [dependency patch notes](../.yarn/patches/README.en.md) explain the local transitive dependency fixes and audit exceptions.

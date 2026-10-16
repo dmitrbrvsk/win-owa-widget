@@ -41,15 +41,17 @@ Download only from this repository's [Releases](https://github.com/dmitrbrvsk/wi
 - “Reset cache” (Settings → Diagnostics) deletes the saved meeting list and server session. Password, certificate and settings remain.
 - Administrator rights are required neither for installation nor for use. Uninstalling through the installer removes settings, encrypted password, cache and log.
 
-## Local MCP (unreleased source code)
+## Local MCP (since 1.5.0)
 
 MCP is off by default. Enabling reading or widening title access requires a native confirmation; disabling takes effect immediately. Only loaded meeting times/status and optionally titles are exposed. Privacy mode hides titles and disables title search. No attendees, descriptions, locations, links, notes, Exchange ids, credentials or write operations are exposed. Account changes revoke access.
 
 The standard MCP transport is stdio through a separate Node 24.22+ CLI. An internal authenticated loopback bridge has strict Host/Origin checks, bounded input/output and timeouts. Connection secrets never enter the interface or copied configuration. Requests and request-bound responses use AES-256-GCM with fresh nonces. Windows protection depends on inherited user-profile ACLs; code running as the same user or administrator can read the key. This does not protect against a compromised user account.
 
-**Enabling MCP allows calendar data to leave the widget for the connected client.** That client may send it to its AI provider or log it. Previously delivered data cannot be recalled. Check company policy and client settings before granting access. Setup, limitations and safe troubleshooting: [MCP guide](docs/MCP.en.md). This feature is not included in the published 1.4.4 release.
+**Enabling MCP allows calendar data to leave the widget for the connected client.** That client may send it to its AI provider or log it. Previously delivered data cannot be recalled. Check company policy and client settings before granting access. Setup, limitations and safe troubleshooting: [MCP guide](docs/MCP.en.md).
 
-## Audit fixes in unreleased source
+## Audit fixes in version 1.5.0
+
+- Account keys distinguish Windows SSO from a manual `windows` login. Migration preserves encrypted originals, requires native consent for ambiguous records and cannot assign one source to two accounts. Interrupted migration resumes only for its reserved owner. [Data migration](docs/GUIDE.en.md#migrating-older-account-data).
 
 - Certificate approval is bound to the exact displayed host, fingerprint and account revision; changes during the native dialog invalidate approval.
 - The real transport authentication mode matches local data ownership. If a manual sign-in password becomes unavailable, the connection stops without falling back to Windows SSO.

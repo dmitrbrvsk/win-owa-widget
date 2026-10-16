@@ -2,7 +2,7 @@
 
 [Русский](MCP.md) | English
 
-**Development version:** this feature is available in source builds and is not yet part of the published 1.4.4 release.
+**Available since 1.5.0.** MCP is off by default and must be enabled separately in widget settings.
 
 OWA Widget can expose a small read-only view of its currently loaded calendar to a local MCP client. Access is off by default. The widget must already be running; the CLI does not launch Electron or connect to Exchange itself.
 

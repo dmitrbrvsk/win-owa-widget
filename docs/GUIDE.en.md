@@ -160,7 +160,7 @@ Not necessarily. Leave both fields empty to use your Windows account (Kerberos /
 <details>
 <summary><b>Where does my data go? Is there telemetry?</b></summary>
 
-With MCP disabled, calendar data and credentials go only to the Exchange server in Settings. The source code also has opt-in [read-only MCP](MCP.en.md), not yet in release 1.4.4: a connected client may forward permitted meeting data to its provider; credentials remain excluded. The manual “Check for updates” button separately asks GitHub for a release version, without calendar data or authentication. There are no update requests until you click it, no telemetry and no automatic installation. Interface pages cannot make network connections. People suggestions, attendee availability, meetings for statistics, newly created meetings and invitation responses also go only to that server. Meeting search is local. See [Security](#security) and [SECURITY.en.md](../SECURITY.en.md).
+With MCP disabled, calendar data and credentials go only to the Exchange server in Settings. Version 1.5.0 adds opt-in [read-only MCP](MCP.en.md): a connected client may forward permitted meeting data to its provider; credentials remain excluded. The manual “Check for updates” button separately asks GitHub for a release version, without calendar data or authentication. There are no update requests until you click it, no telemetry and no automatic installation. Interface pages cannot make network connections. People suggestions, attendee availability, meetings for statistics, newly created meetings and invitation responses also go only to that server. Meeting search is local. See [Security](#security) and [SECURITY.en.md](../SECURITY.en.md).
 </details>
 
 <details>
@@ -335,9 +335,9 @@ Use the [bug report form](https://github.com/dmitrbrvsk/win-owa-widget/issues/ne
 
 **Update check.** Select “Check for updates” in Settings. Only then does the app contact GitHub and compare the latest stable release version with the installed one. If a newer version exists, open its page, download the appropriate installer and install manually. There are no scheduled checks or background downloads; Exchange credentials and calendar data are not sent to GitHub.
 
-## Local MCP (not yet released)
+## Local MCP (since 1.5.0)
 
-The current source code provides optional read-only MCP access for local clients. It needs native consent and a separate Node.js 24.22+ runtime within 24.x. Titles require additional permission, and privacy mode hides them. Clients see only loaded meetings, not a complete availability result. Follow company policy before connecting an AI client. See the [MCP setup guide](MCP.en.md). Published release 1.4.4 does not include this feature.
+Version 1.5.0 provides optional read-only MCP access for local clients. It needs native consent and a separate Node.js 24.22+ runtime within 24.x. Titles require additional permission, and privacy mode hides them. Clients see only loaded meetings, not a complete availability result. Follow company policy before connecting an AI client. See the [MCP setup guide](MCP.en.md).
 
 ## Security
 

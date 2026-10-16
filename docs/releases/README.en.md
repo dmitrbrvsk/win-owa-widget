@@ -7,7 +7,7 @@ Each published release has a Russian description and a matching English translat
 ## Preparing a new version
 
 1. Update `version` in `package.json` and run `yarn install` to check consistency with `yarn.lock`.
-2. Create both release-note files for the same version from [the Russian template](TEMPLATE.md) and [the English template](TEMPLATE.en.md). For example, a future 1.5.0 release would use `docs/releases/v1.5.0.md` and `docs/releases/v1.5.0.en.md`.
+2. Create both release-note files for the same version from [the Russian template](TEMPLATE.md) and [the English template](TEMPLATE.en.md). For example, the 1.5.0 release uses `docs/releases/v1.5.0.md` and `docs/releases/v1.5.0.en.md`.
 3. Describe changes since the previous release in both languages: new features, fixes and important limitations. Replace every unfinished template entry and version placeholder, check installer names, and remove sections that do not apply. Keep the language links paired. The Russian description must link to the English file on `master` so it is accessible from GitHub Releases.
 4. Run `node scripts/release-notes.mjs --check` and the usual project checks. The script validates the Russian release body used for publication; also review the English translation for completeness, placeholders and correct links.
 5. After pushing to `master`, the **Build** workflow checks the Russian description and passes it, with the build artifacts, to the publication step. A missing file for the current version, a missing change list or leftover placeholders causes the check to fail.
