@@ -30,6 +30,12 @@ const ru = {
     groupDeleteConfirm: (name: string) => `Удалить группу «${name}»?`,
     groupSaved: (name: string) => `Группа «${name}» сохранена`,
     groupDeleted: 'Группа удалена. Участники остались в текущем поиске.',
+    accountRecoveryTitle: 'Сохраненные данные старого формата',
+    accountRecoveryHint:
+        'Владелец части старых данных неоднозначен. Данные сохранены отдельно и не открываются автоматически.',
+    accountRecoveryRetry:
+        'Перенос не завершен. Исходные данные сохранены. Проверьте доступ к профилю и шифрованию или лимиты групп и заметок, затем повторите.',
+    accountRecoveryAction: 'Восстановить для текущего аккаунта',
     privacyTitle: 'Режим приватности',
     privacyOn: 'Скрыть данные встреч',
     privacyOff: 'Показать данные встреч',
@@ -511,6 +517,12 @@ const en: Dict = {
     groupDeleteConfirm: (name: string) => `Delete group “${name}”?`,
     groupSaved: (name: string) => `Group “${name}” saved`,
     groupDeleted: 'Group deleted. Participants remain in the current search.',
+    accountRecoveryTitle: 'Preserved legacy account data',
+    accountRecoveryHint:
+        'Some older records have an ambiguous owner. They are preserved separately and never opened automatically.',
+    accountRecoveryRetry:
+        'Migration did not finish. Originals are preserved. Check profile/encryption access or group/note limits, then retry.',
+    accountRecoveryAction: 'Recover for the current account',
     privacyTitle: 'Privacy mode',
     privacyOn: 'Hide meeting details',
     privacyOff: 'Show meeting details',

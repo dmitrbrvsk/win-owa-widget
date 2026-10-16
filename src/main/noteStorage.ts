@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import nodePath from 'node:path';
 
-import { NoteBook } from '../shared/notes';
+import { MAX_NOTES, NoteBook } from '../shared/notes';
 
 import { log } from './log';
 import { decrypt, encrypt, profileDir, readBounded, writeAtomic } from './profileStorage';
@@ -68,4 +68,27 @@ export function saveNotes(book: NoteBook, account: string): boolean {
     mkdirSync(nodePath.dirname(path), { recursive: true });
     writeAtomic(path, enc);
     return true;
+}
+
+export function hasAccountNotes(account: string): boolean {
+    return existsSync(notePath(account));
+}
+
+/** Never overwrite a current note; the legacy ciphertext remains intact for recovery. */
+export function prepareNoteMigration(from: string, to: string): () => void {
+    if (!hasAccountNotes(from)) return () => {};
+    const now = new Date();
+    const legacy = loadNotes(from, now);
+    const current = loadNotes(to, now);
+    if (unreadableNotes.has(notePath(from)) || unreadableNotes.has(notePath(to)))
+        throw new Error('Cannot read preserved notes');
+    const { notes } = current.toJSON();
+    const ids = new Set(notes.map((note) => note.id));
+    notes.push(...legacy.toJSON().notes.filter((note) => !ids.has(note.id)));
+    if (notes.length > MAX_NOTES)
+        throw new Error('Too many notes to merge; current notes are unchanged');
+    const next = NoteBook.parse({ notes }, now);
+    return () => {
+        if (!saveNotes(next, to)) throw new Error('Cannot encrypt migrated notes');
+    };
 }

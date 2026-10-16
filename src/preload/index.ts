@@ -11,6 +11,7 @@ function subscribe<T>(channel: string, cb: (payload: T) => void) {
 }
 
 const api: OwaApi = {
+    recoverAccountData: (account) => ipcRenderer.invoke(IPC.recoverAccountData, account),
     getMcpState: () => ipcRenderer.invoke(IPC.getMcpState),
     setMcpAccess: (access) => ipcRenderer.invoke(IPC.setMcpAccess, access),
     setPrivacyMode: (enabled) => ipcRenderer.invoke(IPC.setPrivacyMode, enabled),

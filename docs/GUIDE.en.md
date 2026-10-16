@@ -98,11 +98,11 @@ Open it using the chart button in the tray window or “Meeting statistics…”
 
 Reminders and change messages appear as Windows notifications. Their buttons work without opening the app window.
 
-| Notification | Contents |
-|---|---|
-| Meeting reminder | “Meeting in N min”, title, time and organizer. A “Snooze for 5 / 10 / 15 minutes” dropdown, “Join” (an unfamiliar link's host is shown beside it) and “Snooze” buttons. If there are several meetings, “Open” replaces “Join”. Stays until you respond. |
-| New invitation | Who invited you, to what and when. An “Accept” button; clicking the text opens meeting details. |
-| Meeting moved or cancelled | What changed and the new time. Clicking the text opens meeting details. |
+| Notification               | Contents                                                                                                                                                                                                                                                |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Meeting reminder           | “Meeting in N min”, title, time and organizer. A “Snooze for 5 / 10 / 15 minutes” dropdown, “Join” (an unfamiliar link's host is shown beside it) and “Snooze” buttons. If there are several meetings, “Open” replaces “Join”. Stays until you respond. |
+| New invitation             | Who invited you, to what and when. An “Accept” button; clicking the text opens meeting details.                                                                                                                                                         |
+| Meeting moved or cancelled | What changed and the new time. Clicking the text opens meeting details.                                                                                                                                                                                 |
 
 How this works and its limits:
 
@@ -273,6 +273,14 @@ After updating, older notes may show a warning in Settings. The old `notes.bin` 
 
 Unreadable encrypted notes and participant-group files are preserved. Writes to the affected file are blocked until access or encryption is restored and the app is restarted. Do not delete the original to dismiss an error.
 
+### Migrating older account data
+
+The new format distinguishes Windows SSO from a manual `windows` login on the same server. Groups and notes for ordinary manual accounts migrate automatically. The old `windows` owner was ambiguous: these records remain separate until you choose “Recover for the current account” in Settings and confirm the assignment in a native dialog. Check the server and account first. Cancelling imports nothing; the same source cannot be assigned to two accounts.
+
+When note IDs conflict, the current note wins and the original stays in its old encrypted file. Conflicting group names receive a numeric suffix. Limits stay the same: insufficient capacity stops migration without deleting original data. After an interrupted write, edits to groups and notes are blocked until migration succeeds for the reserved account.
+
+Old note files remain in `%APPDATA%\OWA Widget\notes\`; the original group file is backed up under `%APPDATA%\OWA Widget\account-migrations\*.groups.bin`, beside the encrypted ownership decision. Do not delete these files or attach them to bug reports. This recovery does not import the older ownerless `notes.bin`, which remains separate. Calendar cache is fetched from the server again, and MCP access requires fresh consent after updating.
+
 ### Notifications and problems
 
 <details>
@@ -308,7 +316,7 @@ Use the [bug report form](https://github.com/dmitrbrvsk/win-owa-widget/issues/ne
 - **“The server redirects sign-in to …”.** Sign-in goes through another portal (single sign-on), which is not currently supported. Try leaving login and password empty to sign in with your Windows account.
 - **The calendar is outdated or looks wrong.** Settings → Diagnostics → “Reset cache” forgets and reloads the meeting list and server session. Password and settings are unaffected.
 - **The password disappeared after changing the server address.** This is intentional: the password is bound to the server it was entered for and is not transferred to another one. Enter it again.
-- **“Cannot connect to the Exchange server (ERR_…)”.** The value in parentheses is the reason reported by the Windows networking layer: `ERR_HTTP2_PROTOCOL_ERROR` or `ERR_EMPTY_RESPONSE` usually means a gateway or proxy is blocking the request; `ERR_CONNECTION_*` means the server is unreachable (check your VPN). The same text and request address are written to the log.
+- **“Cannot connect to the Exchange server (ERR\_…)”.** The value in parentheses is the reason reported by the Windows networking layer: `ERR_HTTP2_PROTOCOL_ERROR` or `ERR_EMPTY_RESPONSE` usually means a gateway or proxy is blocking the request; `ERR_CONNECTION_*` means the server is unreachable (check your VPN). The same text and request address are written to the log.
 - **Nothing refreshes after an incorrect password.** This is intentional: the app makes one sign-in attempt and does not retry until you change the settings; otherwise repeated “Refresh” clicks could lock your domain account. Enter the password again in Settings.
 - **A reminder did not appear.** Check Windows “Do not disturb” and “Focus assist”, or choose “App window” in Settings.
 - **The window is blank or the error has no explanation.** Open Settings → Diagnostics → “Copy support report”, review it and attach it to a [bug report](https://github.com/dmitrbrvsk/win-owa-widget/issues/new?template=bug_report_en.yml). Use “Open log folder” to inspect the log; if you need to share an excerpt, review it first and remove internal addresses and other internal information.
@@ -377,12 +385,12 @@ The `.exe` build runs in GitHub Actions on `windows-latest`. Version preparation
 
 ### Project structure
 
-| Folder | Responsibility |
-|---|---|
-| `src/main/owa/` | OWA client: sign-in, `GetCalendarView`, `GetCalendarEvent`, invitation responses, meeting creation (`CreateItem`), people lookup (`ResolveNames`), availability (`GetUserAvailability`) through EWS; XML parsing (`xml.ts`). Uses Chromium's networking stack, so Windows SSO, proxies and certificates are picked up automatically. |
-| `src/main/` | Tray icon and flashing (`trayPulse.ts`), windows, synchronization, reminders, notifications (`toasts.ts`), the meeting-creation gate with confirmation and limits (`meetingGate.ts`), settings and password storage. |
-| `src/shared/` | Logic independent of Electron: link detection, timeline layout, tray status, meeting-list comparison (`changes.ts`), notification text and buttons (`toasts.ts`), binding the password to a server (`secret.ts`), meeting search (`search.ts`), availability grid and “Best options” (`availability.ts`), meeting statistics calculations (`stats.ts`), address validation (`email.ts`), meeting-confirmation text (`meetingConfirm.ts`). Covered by tests. |
-| `src/renderer/` | React interface. Runs with demo data in a regular browser (`yarn build:browser-demo`). |
+| Folder          | Responsibility                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/main/owa/` | OWA client: sign-in, `GetCalendarView`, `GetCalendarEvent`, invitation responses, meeting creation (`CreateItem`), people lookup (`ResolveNames`), availability (`GetUserAvailability`) through EWS; XML parsing (`xml.ts`). Uses Chromium's networking stack, so Windows SSO, proxies and certificates are picked up automatically.                                                                                                                        |
+| `src/main/`     | Tray icon and flashing (`trayPulse.ts`), windows, synchronization, reminders, notifications (`toasts.ts`), the meeting-creation gate with confirmation and limits (`meetingGate.ts`), settings and password storage.                                                                                                                                                                                                                                        |
+| `src/shared/`   | Logic independent of Electron: link detection, timeline layout, tray status, meeting-list comparison (`changes.ts`), notification text and buttons (`toasts.ts`), binding the password to a server (`secret.ts`), meeting search (`search.ts`), availability grid and “Best options” (`availability.ts`), meeting statistics calculations (`stats.ts`), address validation (`email.ts`), meeting-confirmation text (`meetingConfirm.ts`). Covered by tests. |
+| `src/renderer/` | React interface. Runs with demo data in a regular browser (`yarn build:browser-demo`).                                                                                                                                                                                                                                                                                                                                                                      |
 
 For a browser demo, run `yarn build:browser-demo` and serve `dist/browser-demo/index.html` through a local HTTP server. Production `yarn build:renderer` requires the Electron preload and shows a connection error if it is missing, rather than fictional meetings. `yarn dev:demo` still starts the demo in Electron.
 

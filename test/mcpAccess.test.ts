@@ -8,6 +8,7 @@ import { type McpCalendarView } from '../src/main/mcp/catalog';
 import { McpController } from '../src/main/mcp/controller';
 import { DEFAULT_SETTINGS } from '../src/main/store.defaults';
 import { callBridge } from '../src/mcp/bridgeClient';
+import { participantGroupAccount } from '../src/shared/participantGroups';
 import { sanitizeUpdate } from '../src/shared/validate';
 
 vi.mock('node:fs', async (importOriginal) => {
@@ -183,3 +184,32 @@ describe('MCP permission lifecycle', () => {
         expect(controller.state().running).toBe(false);
     });
 });
+
+it.each([true, false])(
+    'requires new native MCP consent when an old owner is upgraded (SSO=%s)',
+    async (useWindowsAuth) => {
+        const { controller, view, options, confirm } = setup();
+        view.account = JSON.stringify(['mail.example', 'windows']);
+        await controller.setAccess(readOnly);
+        controller.close();
+        view.account = participantGroupAccount({
+            serverUrl: 'mail.example',
+            username: 'windows',
+            useWindowsAuth,
+        });
+        const upgraded = new McpController(options);
+        closers.push(() => upgraded.close());
+        await upgraded.initialize();
+        expect(upgraded.state().access).toEqual(disabled);
+        expect(upgraded.state().running).toBe(false);
+        await upgraded.setAccess(readOnly);
+        expect(confirm).toHaveBeenCalledTimes(2);
+        expect(upgraded.state().running).toBe(true);
+        view.account = participantGroupAccount({
+            serverUrl: 'mail.example',
+            username: 'windows',
+            useWindowsAuth: !useWindowsAuth,
+        });
+        expect(upgraded.state().running).toBe(false);
+    },
+);

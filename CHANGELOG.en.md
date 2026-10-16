@@ -19,6 +19,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Fixed the owner collision between Windows SSO and a manual `windows` login: versioned keys separate server, sign-in mode and principal. Groups and notes migrate with encrypted originals preserved; ambiguous records require native consent and can be assigned to only one account. Legacy cache is resynced and MCP requires fresh consent.
+
 - Availability preserves manual scrolling during clock and calendar updates, while handling local date and timezone changes.
 - Sync status updates no longer copy the entire calendar into every window; account/privacy changes and invitation responses still replace the affected data.
 - Very dense days use a 50-meeting paginated list with totals and navigation; all-day meetings are paginated too. Overlap layout uses priority queues instead of scanning every column.

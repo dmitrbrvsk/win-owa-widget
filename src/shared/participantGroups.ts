@@ -1,7 +1,7 @@
 // Local attendee lists. No Exchange requests or Electron dependencies live here.
+import { accountOwner } from './accountOwner';
 import { MAX_PEOPLE } from './availability';
 import { dedupeEmails, isEmail, normalizeEmail } from './email';
-import { serverKey } from './serverUrl';
 import { clean } from './text';
 import { type AccountSettings, type ParticipantGroup, type ParticipantGroupInput } from './types';
 
@@ -15,10 +15,7 @@ const object = (v: unknown): v is Record<string, unknown> =>
 export function participantGroupAccount(
     account: Pick<AccountSettings, 'serverUrl' | 'username' | 'useWindowsAuth'>,
 ): string {
-    return JSON.stringify([
-        serverKey(account.serverUrl),
-        account.useWindowsAuth ? 'windows' : account.username.trim().toLowerCase(),
-    ]);
+    return accountOwner(account);
 }
 
 export function parseParticipantGroupId(value: unknown): string {

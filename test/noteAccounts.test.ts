@@ -1,11 +1,21 @@
+import { randomUUID } from 'node:crypto';
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import nodePath from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
+import { confirmAccountRecovery } from '../src/main/accountRecovery';
 import { CalendarService } from '../src/main/calendarService';
-import { DEFAULT_SETTINGS, savePassword, saveSettings } from '../src/main/store';
+import {
+    DEFAULT_SETTINGS,
+    loadParticipantGroups,
+    saveNotes,
+    saveParticipantGroups,
+    savePassword,
+    saveSettings,
+} from '../src/main/store';
 import { NoteBook } from '../src/shared/notes';
+import { participantGroupAccount } from '../src/shared/participantGroups';
 import { type CalendarEvent } from '../src/shared/types';
 
 const state = vi.hoisted(() => ({ path: '' }));
@@ -129,4 +139,91 @@ it('clears only the current account while preserving another account with the sa
     await switchUser(service, 'bob');
     expect(service.noteIds()).toEqual([]);
     expect(service.getNote(event.id)).toBe('');
+});
+
+it('keeps SSO groups and notes separate from a manual windows login through switching and restart', async () => {
+    const manual = new CalendarService(false);
+    await switchUser(manual, 'windows');
+    manual.setNote(event.id, 'Manual private');
+    manual.saveParticipantGroup(manual.participantGroupState().account, {
+        name: 'Manual team',
+        emails: ['manual@example.invalid'],
+    });
+    const manualOwner = manual.participantGroupState().account;
+    await manual.applySettings({
+        settings: {
+            ...manual.settings,
+            account: { ...manual.settings.account, username: '', useWindowsAuth: true },
+        },
+    });
+    await manual.syncNow();
+    manual.events = [{ ...event }];
+    expect(manual.noteIds()).toEqual([]);
+    expect(manual.participantGroupState().groups).toEqual([]);
+    manual.setNote(event.id, 'SSO private');
+    manual.saveParticipantGroup(manual.participantGroupState().account, {
+        name: 'SSO team',
+        emails: ['sso@example.invalid'],
+    });
+    expect(participantGroupAccount(manual.settings.account)).not.toBe(manualOwner);
+    await manual.applySettings({
+        settings: {
+            ...manual.settings,
+            account: { ...manual.settings.account, username: 'windows', useWindowsAuth: false },
+        },
+    });
+    await manual.syncNow();
+    manual.events = [{ ...event }];
+    expect(manual.getNote(event.id)).toBe('Manual private');
+    expect(manual.participantGroupState().groups.map((group) => group.name)).toEqual([
+        'Manual team',
+    ]);
+    const restarted = new CalendarService(false);
+    restarted.events = [{ ...event }];
+    expect(restarted.getNote(event.id)).toBe('Manual private');
+    expect(restarted.participantGroupState().groups.map((group) => group.name)).toEqual([
+        'Manual team',
+    ]);
+});
+
+it('requires native approval for old windows data and keeps it inaccessible to the other mode', async () => {
+    const account = {
+        ...DEFAULT_SETTINGS.account,
+        serverUrl: 'mail.example',
+        username: '',
+        useWindowsAuth: true,
+    };
+    saveSettings({ ...structuredClone(DEFAULT_SETTINGS), account });
+    const owner = JSON.stringify(['mail.example', 'windows']);
+    const notes = new NoteBook();
+    notes.set(event.id, 'Preserved SSO note', event.start, new Date());
+    saveNotes(notes, owner);
+    const groups = loadParticipantGroups();
+    groups.save(
+        owner,
+        { name: 'Preserved SSO team', emails: ['private@example.invalid'] },
+        randomUUID,
+    );
+    saveParticipantGroups(groups);
+    const service = new CalendarService(false);
+    service.events = [{ ...event }];
+    const newOwner = service.participantGroupState().account;
+    expect(service.accountRecovery).toBe('available');
+    expect(service.getNote(event.id)).toBe('');
+    expect(service.participantGroupState().groups).toEqual([]);
+    expect(() => service.recoverAccountData('forged', service.accountRevision)).toThrow();
+    expect(() => service.recoverAccountData(newOwner, service.accountRevision + 1)).toThrow();
+    await confirmAccountRecovery(service, newOwner, async () => 0);
+    expect(service.getNote(event.id)).toBe('');
+    await confirmAccountRecovery(service, newOwner, async () => 1);
+    expect(service.getNote(event.id)).toBe('Preserved SSO note');
+    const groupId = service.participantGroupState().groups[0].id;
+    await switchUser(service, 'windows');
+    expect(service.settings.account.useWindowsAuth).toBe(false);
+    expect(service.getNote(event.id)).toBe('');
+    expect(service.participantGroupState().groups).toEqual([]);
+    expect(() =>
+        service.deleteParticipantGroup(service.participantGroupState().account, groupId),
+    ).toThrow();
+    expect(service.accountRecovery).toBeUndefined();
 });

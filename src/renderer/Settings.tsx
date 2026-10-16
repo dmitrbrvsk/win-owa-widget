@@ -9,6 +9,7 @@ import {
     type Snapshot,
 } from '../shared/types';
 
+import { AccountRecovery } from './AccountRecovery';
 import { api } from './api';
 import { ConnectionDiagnostics } from './ConnectionDiagnostics';
 import { ipcMessage, useI18n } from './hooks';
@@ -578,6 +579,7 @@ export function Settings({ snap }: { snap: Snapshot }) {
                 <div className='setting-row'>
                     <div className='label'>
                         <div className='hint'>{t.notesHint}</div>
+                        <AccountRecovery key={snap.participantGroups.account} snap={snap} t={t} />
                         {snap.hasUnassignedNotes && (
                             <div className='msg' role='status'>
                                 {t.notesUnassigned}

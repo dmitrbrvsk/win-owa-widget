@@ -80,6 +80,7 @@ export function mockApi(): OwaApi {
     window.addEventListener('hashchange', emit);
     return {
         ...mockMcpApi(),
+        recoverAccountData: async () => {},
         getSnapshot: async () => view(),
         setPrivacyMode: async (enabled) => {
             snap = { ...snap, settings: { ...snap.settings, privacyMode: enabled } };

@@ -1,5 +1,8 @@
+import { type AccountRecoveryApi } from './accountOwner';
 import { type McpApi } from './mcp';
-import { type SnapshotMessage } from './snapshotTypes';
+import { type Snapshot, type SnapshotMessage } from './snapshotTypes';
+
+export { type Snapshot } from './snapshotTypes';
 
 export const RENDERER_READY_MESSAGE = 'OWA_WIDGET_RENDERER_READY';
 
@@ -136,23 +139,6 @@ export interface SettingsUpdate {
     settings: AppSettings;
     /** New password; undefined keeps the stored one, '' clears it. */
     password?: string;
-}
-
-export interface Snapshot {
-    events: CalendarEvent[];
-    sync: SyncState;
-    settings: AppSettings;
-    demo: boolean;
-    version: string;
-    /** Where the diagnostic log lives, for the settings page. */
-    logPath: string;
-    /** Windows taskbar uses the light theme (dark tray glyph needed). */
-    taskbarLight: boolean;
-    /** The meetings the person has written a note on (the notes themselves are asked for one at a time). */
-    noteIds: string[];
-    /** Legacy notes without an account owner are preserved and never opened automatically. */
-    hasUnassignedNotes?: boolean;
-    participantGroups: ParticipantGroupState;
 }
 
 export interface ReminderPayload {
@@ -360,7 +346,7 @@ export interface CalendarSelection {
     eventId?: string;
 }
 
-export interface OwaApi extends McpApi {
+export interface OwaApi extends McpApi, AccountRecoveryApi {
     setPrivacyMode(enabled: boolean): Promise<void>;
     saveParticipantGroup(account: string, input: ParticipantGroupInput): Promise<ParticipantGroup>;
     deleteParticipantGroup(account: string, id: string): Promise<void>;
@@ -453,6 +439,7 @@ export const IPC = {
     checkForUpdates: 'owa:checkForUpdates',
     openUpdatePage: 'owa:openUpdatePage',
 
+    recoverAccountData: 'owa:recoverAccountData',
     getSnapshot: 'owa:getSnapshot',
     snapshot: 'owa:snapshot',
     syncNow: 'owa:syncNow',

@@ -35,6 +35,7 @@ import { sanitizeUpdate } from '../shared/validate';
 import { OwaClient } from './owa/client';
 import { type MeetingField } from './owa/ewsMeeting';
 import { OwaError } from './owa/http';
+import { AccountData } from './accountData';
 import { type CertificateApproval } from './certificateConsent';
 import { demoAvailability, demoDetails, demoEvents, demoPeople, demoStatsEvents } from './demo';
 import { RequestGate } from './limits';
@@ -43,8 +44,6 @@ import {
     clearEventCache,
     hasUnassignedNotes,
     loadEventCache,
-    loadNotes,
-    loadParticipantGroups,
     loadPassword,
     loadSettings,
     saveEventCache,
@@ -112,8 +111,7 @@ export class CalendarService extends EventEmitter {
     private demoCreated: CalendarEvent[] = [];
     private demoCreatedDetails = new Map<string, EventDetails>();
     /** The person's notes on meetings. In demo mode they live in memory only. */
-    private notes: NoteBook;
-    private groups: ParticipantGroupBook;
+    private readonly local: AccountData;
     lastDiagnostics?: ConnectionDiagnostics;
     private readonly testGate = new RequestGate(1, 6, 60_000);
     /** Free/busy lookups: one at a time and 30 in ten minutes, whatever the window asks for. */
@@ -135,10 +133,7 @@ export class CalendarService extends EventEmitter {
         super();
         this.demo = demo;
         this.settings = loadSettings();
-        this.notes = demo
-            ? new NoteBook()
-            : loadNotes(participantGroupAccount(this.settings.account));
-        this.groups = demo ? new ParticipantGroupBook() : loadParticipantGroups();
+        this.local = new AccountData(participantGroupAccount(this.settings.account), demo);
         if (!demo) this.events = loadEventCache(participantGroupAccount(this.settings.account));
         if (!demo && !this.settings.account.serverUrl) this.sync = { phase: 'notConfigured' };
     }
@@ -390,9 +385,25 @@ export class CalendarService extends EventEmitter {
         void this.refreshAfterChange(generation);
     }
 
+    get accountRecovery() {
+        return this.local.recovery;
+    }
+    recoverAccountData(owner: string, revision: number): void {
+        if (
+            revision !== this.accountRevision ||
+            owner !== participantGroupAccount(this.settings.account)
+        )
+            throw new Error('Аккаунт изменился: повторите восстановление');
+        try {
+            this.local.recover();
+        } finally {
+            this.emit('changed');
+        }
+    }
+
     participantGroupState(): ParticipantGroupState {
         const account = participantGroupAccount(this.settings.account);
-        return { account, groups: this.groups.list(account) };
+        return { account, groups: this.local.groups.list(account) };
     }
     private checkGroupAccount(account: unknown): string {
         const expected = participantGroupAccount(this.settings.account);
@@ -401,22 +412,24 @@ export class CalendarService extends EventEmitter {
         return expected;
     }
     saveParticipantGroup(account: unknown, input: unknown) {
+        this.local.assertWritable();
         const key = this.checkGroupAccount(account);
-        const next = ParticipantGroupBook.parse(this.groups.toJSON());
+        const next = ParticipantGroupBook.parse(this.local.groups.toJSON());
         const saved = next.save(key, input, randomUUID);
         if (!this.demo && !saveParticipantGroups(next))
             throw new Error('Группу нельзя сохранить: недоступно шифрование Windows');
-        this.groups = next;
+        this.local.groups = next;
         this.emit('changed');
         return saved;
     }
     deleteParticipantGroup(account: unknown, id: unknown) {
+        this.local.assertWritable();
         const key = this.checkGroupAccount(account);
-        const next = ParticipantGroupBook.parse(this.groups.toJSON());
+        const next = ParticipantGroupBook.parse(this.local.groups.toJSON());
         next.remove(key, id);
         if (!this.demo && !saveParticipantGroups(next))
             throw new Error('Группу нельзя удалить: недоступно шифрование Windows');
-        this.groups = next;
+        this.local.groups = next;
         this.emit('changed');
     }
     setPrivacyMode(enabled: unknown) {
@@ -436,37 +449,39 @@ export class CalendarService extends EventEmitter {
     }
 
     noteIds(): string[] {
-        return this.notes.ids();
+        return this.local.notes.ids();
     }
 
     getNote(id: string): string {
         // eslint-disable-next-line unicorn/no-unused-array-method-return -- This custom lookup throws if the meeting is absent; it validates membership in the current account before proceeding.
         this.find(id);
-        return this.notes.get(id);
+        return this.local.notes.get(id);
     }
 
     /** Keeps the note on a meeting that is in the calendar; an empty text removes it. Not written when it cannot be encrypted. */
     setNote(id: string, text: string): void {
+        this.local.assertWritable();
         const e = this.find(id);
         const now = new Date();
-        const next = NoteBook.parse(this.notes.toJSON(), now);
+        const next = NoteBook.parse(this.local.notes.toJSON(), now);
         next.set(id, text, e.start, now);
         next.prune(now);
         if (!this.demo && !saveNotes(next, participantGroupAccount(this.settings.account)))
             throw new Error(
                 'Заметку нельзя сохранить: на этом компьютере недоступно шифрование Windows',
             );
-        this.notes = next;
+        this.local.notes = next;
         this.emit('changed');
     }
 
     /** Deletes every note; returns how many there were. */
     clearNotes(): number {
-        const n = this.notes.size;
+        this.local.assertWritable();
+        const n = this.local.notes.size;
         const next = new NoteBook();
         if (!this.demo && !saveNotes(next, participantGroupAccount(this.settings.account)))
             throw new Error('Заметки нельзя удалить: недоступно шифрование Windows');
-        this.notes = next;
+        this.local.notes = next;
         this.emit('changed');
         return n;
     }
@@ -781,9 +796,7 @@ export class CalendarService extends EventEmitter {
             JSON.stringify({ ...prev.account, hasPassword: 0 }) !==
                 JSON.stringify({ ...this.settings.account, hasPassword: 0 });
         if (accountChanged) {
-            this.notes = this.demo
-                ? new NoteBook()
-                : loadNotes(participantGroupAccount(this.settings.account));
+            this.local.load(participantGroupAccount(this.settings.account));
             this.lastDiagnostics = undefined;
             this.events = [];
             try {

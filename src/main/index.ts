@@ -66,6 +66,7 @@ import { createAppMcp } from './mcp/appMcp';
 import { type McpController } from './mcp/controller';
 import { OwaError } from './owa/errors';
 import { changedFields } from './owa/ewsMeeting';
+import { confirmAccountRecovery } from './accountRecovery';
 import { CalendarService } from './calendarService';
 import { confirmCertificateTrust } from './certificateConsent';
 import { describeError, log, logPath } from './log';
@@ -238,7 +239,6 @@ function readTaskbarTheme() {
         },
     );
 }
-// ---------- Links the app may open ----------
 
 /**
  * Only a link the main process itself handed to a window is ever opened in the browser: the join
@@ -287,6 +287,7 @@ function snapshotState(): SnapshotState {
         logPath: logPath(),
         noteIds: service.settings.privacyMode ? [] : service.noteIds(),
         hasUnassignedNotes: service.hasUnassignedNotes(),
+        accountRecovery: service.accountRecovery,
         participantGroups: service.settings.privacyMode
             ? { account: 'private', groups: [] }
             : service.participantGroupState(),
@@ -311,7 +312,6 @@ function broadcast() {
         if (!w.isDestroyed()) w.webContents.send(IPC.snapshot, s);
     updateTrayMenu();
 }
-// ---------- Popup ----------
 
 function ensurePopup(): BrowserWindow {
     if (popup && !popup.isDestroyed()) return popup;
@@ -441,7 +441,6 @@ function togglePopup() {
     if (popup?.isVisible()) hidePopup();
     else showPopup();
 }
-// ---------- Large calendar ----------
 
 function openCalendar(selection?: CalendarSelection) {
     hidePopup();
@@ -1044,6 +1043,9 @@ function registerIpc() {
         if (!groupWrites.allows(Date.now())) throw new Error('Слишком часто: подождите секунду');
         groupWrites.take(Date.now());
     };
+    handle(IPC.recoverAccountData, (_e, owner) =>
+        confirmAccountRecovery(service, owner, askNative, uiLang()),
+    );
     handle(IPC.getMcpState, () => mcp.state());
     handle(IPC.setMcpAccess, (_e, access: unknown) => mcp.setAccess(access));
     handle(IPC.setPrivacyMode, (_e, enabled) => service.setPrivacyMode(enabled));

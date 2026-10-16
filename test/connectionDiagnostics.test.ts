@@ -23,6 +23,11 @@ vi.mock('../src/main/log', () => ({
     log: { info: vi.fn(), warn: vi.fn() },
     describeError: () => 'redacted',
 }));
+// This suite isolates network/service behavior; real profile migration has separate tests.
+vi.mock('../src/main/accountMigration', () => ({
+    migrateAccountData: () => {},
+    incompleteAccountMigration: () => false,
+}));
 vi.mock('../src/main/store', () => ({
     loadSettings: () => structuredClone(DEFAULT_SETTINGS),
     loadNotes: () => new NoteBook(),

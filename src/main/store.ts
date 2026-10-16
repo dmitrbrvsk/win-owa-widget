@@ -2,7 +2,6 @@
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import nodePath from 'node:path';
 
-import { ParticipantGroupBook } from '../shared/participantGroups';
 import { openSecret, sealSecret } from '../shared/secret';
 import { checkServerUrl, serverKey } from '../shared/serverUrl';
 import { type AppSettings, type CalendarEvent } from '../shared/types';
@@ -13,10 +12,8 @@ import { decrypt, encrypt, profileDir as dir, readBounded, writeAtomic } from '.
 import { DEFAULT_SETTINGS } from './store.defaults';
 
 export { DEFAULT_SETTINGS };
+export { loadParticipantGroups, saveParticipantGroups } from './groupStorage';
 export { hasUnassignedNotes, loadNotes, saveNotes } from './noteStorage';
-
-const MAX_GROUP_FILE_BYTES = 1024 * 1024;
-const unreadableGroups = new Set<string>();
 
 /** No settings file yet: the very first launch, when the settings window should open to confirm the defaults. */
 export function isFirstRun(): boolean {
@@ -121,49 +118,4 @@ export function saveEventCache(events: CalendarEvent[], account: string) {
 /** Removes the saved meeting list from the disk (the "reset cache" button). */
 export function clearEventCache() {
     rmSync(nodePath.join(dir(), 'cache.bin'), { force: true });
-}
-
-/** Participant addresses are never written as plain JSON. */
-export function loadParticipantGroups(): ParticipantGroupBook {
-    const path = nodePath.join(dir(), 'groups.bin');
-    try {
-        if (!existsSync(path)) {
-            unreadableGroups.delete(path);
-            return new ParticipantGroupBook();
-        }
-        const plain = decrypt(readBounded(path, MAX_GROUP_FILE_BYTES));
-        if (!plain) throw new Error('Cannot decrypt participant groups');
-        const raw: unknown = JSON.parse(plain);
-        if (!raw || typeof raw !== 'object' || Array.isArray(raw))
-            throw new Error('Invalid participant groups');
-        const value = raw as { version?: unknown; groups?: unknown };
-        if (value.version !== 1 || !Array.isArray(value.groups))
-            throw new Error('Invalid participant groups');
-        const book = ParticipantGroupBook.parse(raw);
-        if (book.toJSON().groups.length !== value.groups.length)
-            throw new Error('Invalid participant group entries');
-        unreadableGroups.delete(path);
-        return book;
-    } catch {
-        unreadableGroups.add(path);
-        log.warn(
-            'groups: could not read the file; original preserved and writes blocked until recovery',
-        );
-        return new ParticipantGroupBook();
-    }
-}
-export function saveParticipantGroups(book: ParticipantGroupBook): boolean {
-    const path = nodePath.join(dir(), 'groups.bin');
-    if (unreadableGroups.has(path))
-        throw new Error(
-            'Файл групп не удалось прочитать. Исходный файл сохранен: восстановите доступ и перезапустите приложение',
-        );
-    const enc = encrypt(JSON.stringify(book));
-    if (!enc) return false;
-    if (enc.length > MAX_GROUP_FILE_BYTES)
-        throw new Error(
-            'Файл групп слишком большой: удалите ненужные группы и повторите сохранение',
-        );
-    writeAtomic(path, enc);
-    return true;
 }
