@@ -347,9 +347,12 @@ export class CalendarService extends EventEmitter {
             );
         }
         // Optimistic update; the next sync brings the server's truth (and a new ChangeKey).
-        if (action === 'accept') e.responseType = 'accepted';
-        else if (action === 'tentative') e.responseType = 'tentative';
-        else e.responseType = 'declined';
+        const responseType = (
+            { accept: 'accepted', tentative: 'tentative', decline: 'declined' } as const
+        )[action];
+        this.events = this.events.map((event) =>
+            event.id === e.id ? { ...event, responseType } : event,
+        );
         this.emit('changed');
         if (!this.demo) {
             const { generation } = this;

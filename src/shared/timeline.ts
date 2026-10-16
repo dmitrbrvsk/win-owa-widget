@@ -1,4 +1,5 @@
 // Side-by-side layout of overlapping meetings on a day timeline.
+import { MinHeap } from './minHeap';
 import { type CalendarEvent } from './types';
 
 export interface TimelineBlock {
@@ -67,10 +68,14 @@ export function layoutDay(events: CalendarEvent[], day: Date): TimelineBlock[] {
     const out: TimelineBlock[] = [];
     let cluster: Array<(typeof items)[number] & { lane: number }> = [];
     let clusterEnd = -1;
-    let laneEnds: number[] = [];
+    const active = new MinHeap<{ end: number; lane: number }>(
+        (a, b) => a.end - b.end || a.lane - b.lane,
+    );
+    const available = new MinHeap<number>((a, b) => a - b);
+    let laneCount = 0;
 
     const flush = () => {
-        const lanes = laneEnds.length || 1;
+        const lanes = laneCount || 1;
         for (const c of cluster)
             out.push({
                 event: c.event,
@@ -80,7 +85,9 @@ export function layoutDay(events: CalendarEvent[], day: Date): TimelineBlock[] {
                 lanes,
             });
         cluster = [];
-        laneEnds = [];
+        active.clear();
+        available.clear();
+        laneCount = 0;
         clusterEnd = -1;
     };
 
@@ -88,13 +95,19 @@ export function layoutDay(events: CalendarEvent[], day: Date): TimelineBlock[] {
         // A zero-length meeting still occupies a sliver so it does not collide invisibly.
         const end = Math.max(item.endMin, item.startMin + 1);
         if (cluster.length && item.startMin >= clusterEnd) flush();
-        let lane = laneEnds.findIndex((le) => le <= item.startMin);
-        if (lane === -1) {
-            lane = laneEnds.length;
-            laneEnds.push(end);
-        } else {
-            laneEnds[lane] = end;
+        // Release finished lanes by end time; retain the original lowest-free-lane ordering.
+        for (
+            let first = active.peek();
+            first && first.end <= item.startMin;
+            first = active.peek()
+        ) {
+            active.pop();
+            available.push(first.lane);
         }
+        const freeLane = available.pop();
+        const lane = freeLane ?? laneCount;
+        if (freeLane === undefined) laneCount += 1;
+        active.push({ end, lane });
         cluster.push({ ...item, lane });
         clusterEnd = Math.max(clusterEnd, end);
     }

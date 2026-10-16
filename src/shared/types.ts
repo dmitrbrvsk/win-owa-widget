@@ -1,5 +1,5 @@
-// Types shared by the main process, the preload bridge and the renderer.
 import { type McpApi } from './mcp';
+import { type SnapshotMessage } from './snapshotTypes';
 
 export const RENDERER_READY_MESSAGE = 'OWA_WIDGET_RENDERER_READY';
 
@@ -370,7 +370,7 @@ export interface OwaApi extends McpApi {
     openUpdatePage(): Promise<void>;
 
     getSnapshot(): Promise<Snapshot>;
-    onSnapshot(cb: (s: Snapshot) => void): () => void;
+    onSnapshot(cb: (s: Snapshot | SnapshotMessage) => void): () => void;
     syncNow(): Promise<void>;
     getDetails(eventId: string): Promise<EventDetails>;
     respond(eventId: string, action: RsvpAction): Promise<void>;

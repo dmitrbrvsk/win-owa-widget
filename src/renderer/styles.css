@@ -614,6 +614,44 @@ svg.ico {
     padding-left: 11px;
 }
 
+.allday-paged {
+    align-items: flex-start;
+}
+
+.allday-pages {
+    flex: 1;
+    min-width: 0;
+}
+
+.allday-pills {
+    position: relative;
+    max-height: 96px;
+}
+
+.meeting-pages {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding-bottom: 8px;
+}
+
+.meeting-page-count {
+    flex: 1;
+    font-size: 12px;
+    min-width: 120px;
+}
+
+.meeting-page-count span {
+    display: block;
+    color: var(--fg2);
+    font-size: 11px;
+}
+
+.meeting-pages button:disabled {
+    opacity: 0.45;
+}
+
 /* ---------- Timeline ---------- */
 .timeline {
     position: relative;
@@ -763,6 +801,41 @@ svg.ico {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+.dense-day {
+    display: flex;
+    flex-direction: column;
+    padding: 10px 12px 0;
+    overflow: hidden;
+}
+
+.dense-day-hint {
+    margin: 0 0 8px;
+    font-size: 12px;
+    color: var(--fg2);
+}
+
+.dense-day-rows {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    padding-bottom: 10px;
+}
+
+.dense-day-row {
+    position: relative;
+    min-height: 52px;
+    margin-bottom: 6px;
+    padding: 0;
+}
+
+.dense-day-main {
+    display: block;
+    text-align: left;
+    width: 100%;
+    min-height: 52px;
+    padding: 8px 32px 8px 11px;
 }
 
 .badge {

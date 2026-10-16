@@ -382,7 +382,11 @@ The `.exe` build runs in GitHub Actions on `windows-latest`. Version preparation
 | `src/main/owa/` | OWA client: sign-in, `GetCalendarView`, `GetCalendarEvent`, invitation responses, meeting creation (`CreateItem`), people lookup (`ResolveNames`), availability (`GetUserAvailability`) through EWS; XML parsing (`xml.ts`). Uses Chromium's networking stack, so Windows SSO, proxies and certificates are picked up automatically. |
 | `src/main/` | Tray icon and flashing (`trayPulse.ts`), windows, synchronization, reminders, notifications (`toasts.ts`), the meeting-creation gate with confirmation and limits (`meetingGate.ts`), settings and password storage. |
 | `src/shared/` | Logic independent of Electron: link detection, timeline layout, tray status, meeting-list comparison (`changes.ts`), notification text and buttons (`toasts.ts`), binding the password to a server (`secret.ts`), meeting search (`search.ts`), availability grid and “Best options” (`availability.ts`), meeting statistics calculations (`stats.ts`), address validation (`email.ts`), meeting-confirmation text (`meetingConfirm.ts`). Covered by tests. |
-| `src/renderer/` | React interface. Runs with demo data in a regular browser (`yarn build:renderer`). |
+| `src/renderer/` | React interface. Runs with demo data in a regular browser (`yarn build:browser-demo`). |
+
+For a browser demo, run `yarn build:browser-demo` and serve `dist/browser-demo/index.html` through a local HTTP server. Production `yarn build:renderer` requires the Electron preload and shows a connection error if it is missing, rather than fictional meetings. `yarn dev:demo` still starts the demo in Electron.
+
+Days with more than 100 timed meetings or more than eight overlapping columns use a list of 50 meetings per page. Totals and navigation keep the entire day accessible; calendar search opens the selected meeting's page. All-day meetings are also paginated when there are more than 50.
 
 ## Interface gallery
 

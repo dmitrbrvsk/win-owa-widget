@@ -13,6 +13,7 @@
         "build": "yarn typecheck && node scripts/build-main.mjs && vite build",
         "build:main": "node scripts/build-main.mjs",
         "build:renderer": "vite build",
+        "build:browser-demo": "vite build --mode browser-demo",
         "start": "electron .",
         "start:demo": "cross-env OWA_DEMO=1 electron .",
         "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit",

@@ -1,20 +1,34 @@
-import { Component, type ReactNode, StrictMode, useEffect } from 'react';
+import { Component, lazy, type ReactNode, StrictMode, Suspense, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { RENDERER_READY_MESSAGE } from '../shared/types';
 
-import { Availability } from './Availability';
-import { Calendar } from './Calendar';
-import { Create } from './Create';
+import { preloadError } from './api';
 import { useSnapshot, useTheme } from './hooks';
-import { Popup } from './Popup';
-import { PrivateCalendar } from './PrivateCalendar';
-import { Reminder } from './Reminder';
-import { Settings } from './Settings';
-import { Stats } from './Stats';
-import { Welcome } from './Welcome';
 
 import './styles.css';
+
+const Popup = lazy(() => import('./Popup').then((m) => ({ default: m.Popup })));
+const Calendar = lazy(() => import('./Calendar').then((m) => ({ default: m.Calendar })));
+const Settings = lazy(() => import('./Settings').then((m) => ({ default: m.Settings })));
+const Welcome = lazy(() => import('./Welcome').then((m) => ({ default: m.Welcome })));
+const Reminder = lazy(() => import('./Reminder').then((m) => ({ default: m.Reminder })));
+const Create = lazy(() => import('./Create').then((m) => ({ default: m.Create })));
+const Availability = lazy(() =>
+    import('./Availability').then((m) => ({ default: m.Availability })),
+);
+const Stats = lazy(() => import('./Stats').then((m) => ({ default: m.Stats })));
+const PrivateCalendar = lazy(() =>
+    import('./PrivateCalendar').then((m) => ({ default: m.PrivateCalendar })),
+);
+
+function Loading() {
+    return (
+        <div className='trouble' role='status'>
+            Загрузка… / Loading…
+        </div>
+    );
+}
 
 function Trouble({ title, text }: { title: string; text: string }) {
     return (
@@ -52,28 +66,57 @@ class Boundary extends Component<{ children: ReactNode }, { error?: Error }> {
     }
 }
 
-function App() {
+function MountedRoute({ children }: { children: ReactNode }) {
+    useEffect(() => {
+        // Suspense commits this subtree only after the actual route chunk and its styles loaded.
+        // Packaged startup checks must not pass while the loading fallback is still on screen.
+        // eslint-disable-next-line no-console -- The main process consumes this constant readiness marker to verify renderer startup without exposing an additional IPC channel.
+        if (document.styleSheets.length > 0) console.info(RENDERER_READY_MESSAGE);
+    }, []);
+    return children;
+}
+
+function ConnectedApp() {
     const { snap, error } = useSnapshot();
     useTheme(snap);
-    const ready = !!snap && !error;
-    useEffect(() => {
-        // Packaged startup checks verify JS, CSS and the preload bridge, not just a living process.
-        // eslint-disable-next-line no-console -- The main process consumes this constant readiness marker to verify renderer startup without exposing an additional IPC channel.
-        if (ready && document.styleSheets.length > 0) console.info(RENDERER_READY_MESSAGE);
-    }, [ready]);
     if (error) return <Trouble title='Нет связи с приложением' text={error} />;
-    if (!snap) return null;
-    if (snap.settings.privacyMode) return <PrivateCalendar snap={snap} />;
-    const route = location.hash.replace(/^#\/?/, '').split('?', 1)[0];
-    if (route === 'calendar') return <Calendar key={snap.participantGroups.account} snap={snap} />;
-    if (route === 'settings') return <Settings snap={snap} />;
-    if (route === 'welcome') return <Welcome snap={snap} />;
-    if (route === 'reminder') return <Reminder snap={snap} />;
-    if (route === 'create') return <Create snap={snap} />;
-    if (route === 'availability')
-        return <Availability key={snap.participantGroups.account} snap={snap} />;
-    if (route === 'stats') return <Stats snap={snap} />;
-    return <Popup snap={snap} />;
+    if (!snap) return <Loading />;
+    const route = snap.settings.privacyMode
+        ? 'private'
+        : location.hash.replace(/^#\/?/, '').split('?', 1)[0];
+    const routes = {
+        calendar: Calendar,
+        settings: Settings,
+        welcome: Welcome,
+        reminder: Reminder,
+        create: Create,
+        availability: Availability,
+        stats: Stats,
+        private: PrivateCalendar,
+    };
+    const Route = routes[route as keyof typeof routes] ?? Popup;
+    return (
+        <Suspense fallback={<Loading />}>
+            <MountedRoute key={route}>
+                <Route
+                    key={
+                        route === 'calendar' || route === 'availability'
+                            ? snap.participantGroups.account
+                            : undefined
+                    }
+                    snap={snap}
+                />
+            </MountedRoute>
+        </Suspense>
+    );
+}
+
+function App() {
+    return preloadError ? (
+        <Trouble title='Нет связи с приложением' text={preloadError} />
+    ) : (
+        <ConnectedApp />
+    );
 }
 
 createRoot(document.getElementById('root')!).render(

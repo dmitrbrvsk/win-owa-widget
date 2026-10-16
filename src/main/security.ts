@@ -12,6 +12,7 @@ import { RENDERER_READY_MESSAGE } from '../shared/types';
 
 import { log, originForLog } from './log';
 import { isRendererPageUrl } from './rendererProtocol';
+import { markRendererReady, trackRendererReady } from './rendererReady';
 
 /** The only documents allowed to call into the main process. */
 export function isTrustedUrl(raw: string): boolean {
@@ -46,6 +47,7 @@ export function isTrustedSender(e: IpcMainEvent | IpcMainInvokeEvent): boolean {
 
 /** Windows never navigate away, never open child windows or webviews, and get no permissions. */
 export function hardenWebContents(contents: WebContents) {
+    trackRendererReady(contents);
     contents.setWindowOpenHandler(({ url }) => {
         log.warn(`window.open blocked: ${originForLog(url)}`);
         return { action: 'deny' };
@@ -73,6 +75,7 @@ export function hardenWebContents(contents: WebContents) {
             ev.message === RENDERER_READY_MESSAGE &&
             isTrustedUrl(contents.getURL())
         ) {
+            markRendererReady(contents);
             log.info('renderer ready');
             return;
         }

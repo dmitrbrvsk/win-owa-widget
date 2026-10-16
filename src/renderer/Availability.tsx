@@ -2,10 +2,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
-    availabilityFromEvents,
     type AvailabilityGrid,
     bestOptions,
-    buildGrid,
     DURATIONS,
     MAX_PEOPLE,
     type MeetingDuration,
@@ -21,6 +19,7 @@ import { type AvailabilityRequest, type AvailabilityResult, type Snapshot } from
 
 import { Alert } from './Alert';
 import { api } from './api';
+import { useAvailabilityGrid, useAvailabilityGridScroll } from './availabilityGrid';
 import { ipcMessage, useI18n, useNow } from './hooks';
 import { Icon } from './icons';
 import { ParticipantGroups } from './ParticipantGroups';
@@ -133,15 +132,7 @@ function Grid({ grid, selected, now, t, lang, today }: GridProps) {
             band.current.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
     }, [band0?.from, band0?.to]);
 
-    // A new week: start at today's column when the week contains it.
-
-    useEffect(() => {
-        const el = scroller.current;
-        if (!el) return;
-        // eslint-disable-next-line react-you-might-not-need-an-effect/no-pass-data-to-parent -- This lookup controls DOM scrolling, not parent component state.
-        const day = days.find((d) => d.date === today);
-        el.scrollLeft = day ? Math.max(0, day.first * CELL - CELL * 2) : 0;
-    }, [grid.windowStart, days, today]);
+    useAvailabilityGridScroll(scroller, grid, today, CELL);
 
     const rowCount = people.length;
     return (
@@ -246,10 +237,6 @@ export function Availability({ snap }: { snap: Snapshot }) {
     const { t, lang } = useI18n(snap);
     const now = useNow(60_000);
     const nowMs = now.getTime();
-    const todayMs = useMemo(
-        () => new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime(),
-        [now],
-    );
 
     const [emails, setEmails] = useState<string[]>([]);
     const [duration, setDuration] = useState<MeetingDuration>(60);
@@ -340,25 +327,16 @@ export function Availability({ snap }: { snap: Snapshot }) {
     }, [result, week]);
 
     const fromCalendar = !result?.self;
-    const grid = useMemo(() => {
-        const me =
-            result?.self ??
-            availabilityFromEvents(snap.events, window0.start, window0.end, new Date(nowMs), 'me');
-        const others = (result?.people ?? []).filter((p) => p.email !== result?.self?.email);
-        return buildGrid(window0.start, window0.end, [{ ...me, self: true }, ...others], {
-            workdayStartHour: snap.settings.workdayStartHour,
-            workdayEndHour: snap.settings.workdayEndHour,
-            showWeekends: weekends,
-        });
-    }, [
+    const { grid, today: todayMs } = useAvailabilityGrid({
         result,
-        snap.events,
-        snap.settings.workdayStartHour,
-        snap.settings.workdayEndHour,
-        weekends,
-        window0,
-        nowMs,
-    ]);
+        events: snap.events,
+        windowStart: window0.start,
+        windowEnd: window0.end,
+        now,
+        workdayStartHour: snap.settings.workdayStartHour,
+        workdayEndHour: snap.settings.workdayEndHour,
+        showWeekends: weekends,
+    });
 
     const options = useMemo(
         () => (result ? bestOptions(grid, duration, new Date(nowMs), 5) : []),

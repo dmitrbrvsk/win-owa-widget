@@ -11,6 +11,7 @@ files:
   - LICENSE
   - THIRD_PARTY_NOTICES.txt
   - "!dist/mcp/**/*"
+  - "!dist/browser-demo/**/*"
   - "!**/*.map"
 extraResources:
   - from: dist/mcp

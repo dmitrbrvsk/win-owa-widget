@@ -1,13 +1,15 @@
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 
 import { isEffectivelyCancelled, sameDay } from '../shared/events';
 import { range } from '../shared/format';
+import { MEETINGS_PER_PAGE } from '../shared/meetingPages';
 import { privateEvent } from '../shared/privacy';
 import { type Snapshot } from '../shared/types';
 
 import { api } from './api';
 import { ipcMessage, useI18n } from './hooks';
 import { Icon } from './icons';
+import { MeetingPager, useMeetingPage } from './MeetingPager';
 
 /** A separate view unmounts detail panels, drafts, notes and suggestions in every open window. */
 export function PrivateCalendar({ snap }: { snap: Snapshot }) {
@@ -26,8 +28,16 @@ export function PrivateCalendar({ snap }: { snap: Snapshot }) {
         .toSorted(
             (a, b) => Number(b.isAllDay) - Number(a.isAllDay) || a.start.localeCompare(b.start),
         );
-    const shift = (n: number) =>
+    const page = useMeetingPage(events);
+    const rows = useRef<HTMLDivElement>(null);
+    const dayKey = day.toDateString();
+    useLayoutEffect(() => {
+        if (rows.current) rows.current.scrollTop = 0;
+    }, [page.page, dayKey]);
+    const shift = (n: number) => {
         setDay((d) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n));
+        page.setPage(0);
+    };
     return (
         <main className='private-calendar'>
             <header className='privacy-banner'>
@@ -87,13 +97,16 @@ export function PrivateCalendar({ snap }: { snap: Snapshot }) {
                     <Icon name='chevR' />
                 </button>
             </nav>
-            <div className='private-events' role='list'>
+            {events.length > MEETINGS_PER_PAGE && <MeetingPager {...page} t={t} />}
+            <div className='private-events' role='list' aria-label={t.meetingList} ref={rows}>
                 {events.length ? (
-                    events.map((e) => (
+                    page.items.map((e, index) => (
                         <div
                             className={`private-event${isEffectivelyCancelled(e) ? ' cancelled' : ''}`}
                             key={e.id}
                             role='listitem'
+                            aria-posinset={page.start + index}
+                            aria-setsize={page.total}
                         >
                             <span className='tnum'>
                                 {e.isAllDay ? t.allDay : range(e.start, e.end, lang)}

@@ -2,6 +2,7 @@ import { type IpcMainInvokeEvent, type WebContents } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type * as logModule from '../src/main/log';
+import { afterRendererReady } from '../src/main/rendererReady';
 import {
     hardenSession,
     hardenWebContents,
@@ -58,6 +59,7 @@ function contents(url = page) {
     const listeners = new Map<string, (...args: unknown[]) => void>();
     let opening!: (details: { url: string }) => { action: string };
     const wc = {
+        isDestroyed: () => false,
         getURL: () => url,
         setWindowOpenHandler: (fn: typeof opening) => {
             opening = fn;
@@ -65,9 +67,16 @@ function contents(url = page) {
         on: (name: string, fn: (...args: unknown[]) => void) => {
             listeners.set(name, fn);
         },
+        once: (name: string, fn: (...args: unknown[]) => void) => {
+            listeners.set(name, fn);
+        },
     };
     hardenWebContents(wc as unknown as WebContents);
-    return { listeners, opening: (targetUrl: string) => opening({ url: targetUrl }) };
+    return {
+        listeners,
+        webContents: wc as unknown as WebContents,
+        opening: (targetUrl: string) => opening({ url: targetUrl }),
+    };
 }
 describe('Electron trust boundaries', () => {
     it('accepts only the shipped renderer origin in a packaged build', () => {
@@ -138,9 +147,18 @@ describe('Electron trust boundaries', () => {
 
 it('recognizes UI readiness only from a trusted page', () => {
     const event = { level: 'info', message: 'OWA_WIDGET_RENDERER_READY' };
-    contents().listeners.get('console-message')!(event);
+    const trusted = contents();
+    const dispatched = vi.fn();
+    afterRendererReady(trusted.webContents, dispatched);
+    trusted.listeners.get('console-message')!(event);
+    expect(dispatched).toHaveBeenCalledOnce();
     expect(state.info).toHaveBeenCalledWith('renderer ready');
     state.info.mockClear();
-    contents('https://evil.example').listeners.get('console-message')!(event);
+    const foreign = contents('https://evil.example');
+    const blocked = vi.fn();
+    afterRendererReady(foreign.webContents, blocked);
+    foreign.listeners.get('console-message')!(event);
+    trusted.listeners.get('console-message')!({ ...event, level: 'warning' });
+    expect(blocked).not.toHaveBeenCalled();
     expect(state.info).not.toHaveBeenCalled();
 });

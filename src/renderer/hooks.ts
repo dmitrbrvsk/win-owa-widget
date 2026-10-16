@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { type Dict, dict, type Lang, resolveLang } from '../shared/i18n';
 import { urlHost } from '../shared/meetingUrl';
+import { SnapshotReceiver } from '../shared/snapshotReceiver';
+import { type SnapshotMessage } from '../shared/snapshotTypes';
 import { type CalendarEvent, type MeetingPlatform, type Snapshot } from '../shared/types';
 
 import { api } from './api';
@@ -18,20 +20,28 @@ export function useSnapshot(): { snap: Snapshot | null; error: string | null } {
     const [error, setError] = useState<string | null>(null);
     useEffect(() => {
         let alive = true;
-        const load = (attempt: number) =>
-            api
+        const receiver = new SnapshotReceiver();
+        const apply = (value: Snapshot | SnapshotMessage) => {
+            if (!alive) return;
+            if ('sequence' in value) {
+                const next = receiver.accept(value);
+                if (next) setSnap(next);
+                else if (!receiver.current) void load(0);
+            } else setSnap(value); // Explicit browser demo emits ordinary full snapshots.
+            setError(null);
+        };
+        function load(attempt: number) {
+            return api
                 .getSnapshot()
-                .then((s) => alive && setSnap(s))
+                .then(apply)
                 .catch((e) => {
                     if (!alive) return;
                     if (attempt < 3) setTimeout(() => load(attempt + 1), 400 * (attempt + 1));
                     else setError(e instanceof Error ? e.message : String(e));
                 });
+        }
         void load(0);
-        const off = api.onSnapshot((s) => {
-            setSnap(s);
-            setError(null);
-        });
+        const off = api.onSnapshot(apply);
         return () => {
             alive = false;
             off();

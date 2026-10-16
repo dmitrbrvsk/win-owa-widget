@@ -19,6 +19,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Availability preserves manual scrolling during clock and calendar updates, while handling local date and timezone changes.
+- Sync status updates no longer copy the entire calendar into every window; account/privacy changes and invitation responses still replace the affected data.
+- Very dense days use a 50-meeting paginated list with totals and navigation; all-day meetings are paginated too. Overlap layout uses priority queues instead of scanning every column.
+- Production JS is minified; MCP includes only the used English Zod locale while preserving validation. Screens load separately, and browser demo builds use `yarn build:browser-demo`.
+
 - Certificate consent cannot approve a different fingerprint or account after a pending-certificate change.
 - A password-read failure cannot change the authentication mode under a different cache owner; account changes during deletion consent cannot delete the replacement account's notes.
 - Notes are isolated per account; ownerless legacy notes are preserved separately. Unreadable notes/groups cannot be silently overwritten.

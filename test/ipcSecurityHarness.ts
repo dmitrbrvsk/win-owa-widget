@@ -9,6 +9,7 @@ import vm from 'node:vm';
 import { vi } from 'vitest';
 
 import { type CalendarService } from '../src/main/calendarService';
+import { type SnapshotMessage } from '../src/shared/snapshotTypes';
 import { type CertInfo } from '../src/shared/types';
 
 const require = createRequire(import.meta.url);
@@ -16,7 +17,7 @@ const root = nodePath.dirname(nodePath.dirname(fileURLToPath(import.meta.url)));
 const bundle = buildSync({
     stdin: {
         loader: 'ts',
-        contents: `${readFileSync(nodePath.join(root, 'src/main/index.ts'), 'utf8')}\nexport function auditBoot(demo: boolean) { service = new CalendarService(demo); registerIpc(); return service; }\nimport { OwaClient as AuditClient } from './owa/client';\nexport function auditCertificate(cert: unknown) { AuditClient.prototype.fetchCalendarView = async () => { const error = new OwaError('certificate', 'Synthetic certificate failure'); error.cert = cert; throw error; }; }`,
+        contents: `${readFileSync(nodePath.join(root, 'src/main/index.ts'), 'utf8')}\nexport function auditSnapshotUpdate() { return snapshotPublisher.capture(snapshotSource()); }\nexport function auditBoot(demo: boolean) { service = new CalendarService(demo); registerIpc(); return service; }\nimport { OwaClient as AuditClient } from './owa/client';\nexport function auditCertificate(cert: unknown) { AuditClient.prototype.fetchCalendarView = async () => { const error = new OwaError('certificate', 'Synthetic certificate failure'); error.cert = cert; throw error; }; }`,
         resolveDir: nodePath.join(root, 'src/main'),
         sourcefile: 'audit-main.ts',
     },
@@ -108,6 +109,7 @@ export function ipcHarness(demo: boolean) {
     const mod = {
         exports: {} as {
             auditBoot: (demo: boolean) => CalendarService;
+            auditSnapshotUpdate: () => SnapshotMessage;
             auditCertificate: (cert: CertInfo) => void;
         },
     };
@@ -160,5 +162,6 @@ export function ipcHarness(demo: boolean) {
         confirm,
         requests: () => requests,
         certificate: mod.exports.auditCertificate,
+        snapshotUpdate: mod.exports.auditSnapshotUpdate,
     };
 }

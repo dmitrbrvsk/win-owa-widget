@@ -20,6 +20,7 @@ import { urlHost } from '../shared/meetingUrl';
 import { searchEvents } from '../shared/search';
 import { type CalendarEvent, type Snapshot } from '../shared/types';
 
+import { AllDayMeetings } from './AllDayMeetings';
 import { api } from './api';
 import { Detail } from './Detail';
 import { eventColor, ipcMessage, joinHost, useI18n, useNow } from './hooks';
@@ -345,26 +346,12 @@ export function Popup({ snap }: { snap: Snapshot }) {
                             />
                         )}
 
-                        {allDay.length > 0 && (
-                            <div className='allday'>
-                                <span className='gutter'>{t.allDay}</span>
-                                <div className='pills'>
-                                    {allDay.map((e) => (
-                                        <button
-                                            type='button'
-                                            key={e.id}
-                                            className='pill nowrap'
-                                            onClick={() => setOpen(e)}
-                                            style={{ ['--c' as string]: eventColor(e) }}
-                                            {...meetingMenuProps(e.id)}
-                                        >
-                                            {displayTitle(e)}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
+                        <AllDayMeetings
+                            key={day.toDateString()}
+                            events={allDay}
+                            t={t}
+                            onOpen={setOpen}
+                        />
                         <Timeline
                             events={dayEvents}
                             day={day}

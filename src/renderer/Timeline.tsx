@@ -1,15 +1,13 @@
-import * as React from 'react';
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 
-import { displayTitle, isEffectivelyCancelled, joinUrlForActions, sameDay } from '../shared/events';
-import { range } from '../shared/format';
+import { sameDay } from '../shared/events';
 import { type Dict, type Lang } from '../shared/i18n';
+import { usesMeetingPages } from '../shared/meetingPages';
 import { layoutDay, visibleRange, type Workday } from '../shared/timeline';
 import { type CalendarEvent } from '../shared/types';
 
-import { eventColor, joinHost } from './hooks';
-import { Icon } from './icons';
-import { meetingMenuProps } from './meetingMenu';
+import { DenseDayTimeline } from './DenseDayTimeline';
+import { TimelineMeeting } from './TimelineMeeting';
 
 const HOUR = 64; // px per hour
 
@@ -45,6 +43,7 @@ export function Timeline({
     const ref = useRef<HTMLDivElement>(null);
     const isToday = sameDay(day, now);
     const blocks = useMemo(() => layoutDay(events, day), [events, day]);
+    const paged = usesMeetingPages(blocks);
     const nowMin = now.getHours() * 60 + now.getMinutes();
     // The working day, widened to keep every meeting (and "now", today) in view.
     const range0 = useMemo(
@@ -71,18 +70,34 @@ export function Timeline({
         if (ref.current) ref.current.scrollTop = scrollTarget;
         // Only when switching day or when the content first arrives, not on every tick.
         // eslint-disable-next-line react-hooks/exhaustive-deps -- Reposition only when the selected meeting changes, preserving manual scrolling.
-    }, [dayKey, blocks.length === 0]);
+    }, [dayKey, blocks.length === 0, paged]);
 
     useLayoutEffect(() => {
         const block = blocks.find((item) => item.event.id === selectedId);
         if (block && ref.current) ref.current.scrollTop = Math.max(0, y(block.startMin - 60));
         // A selection scrolls once; background sync and clock ticks preserve the person's scroll position.
         // eslint-disable-next-line react-hooks/exhaustive-deps -- Reposition only when the selected meeting changes, preserving manual scrolling.
-    }, [selectedId, dayKey]);
+    }, [selectedId, dayKey, paged]);
 
     useEffect(() => {
         // keep layout stable on resize
     }, []);
+
+    if (paged) {
+        return (
+            <DenseDayTimeline
+                key={dayKey}
+                blocks={blocks}
+                nowMin={isToday ? nowMin : undefined}
+                noted={noted}
+                t={t}
+                lang={lang}
+                onOpen={onOpen}
+                onJoin={onJoin}
+                selectedId={selectedId}
+            />
+        );
+    }
 
     const firstHour = range0.startMin / 60;
     const lastHour = range0.endMin / 60;
@@ -90,7 +105,7 @@ export function Timeline({
     const currentSlotStart = Math.floor(nowMin / 30) * 30;
 
     return (
-        <div className='timeline scroll' ref={ref} role='list' aria-label='Meetings'>
+        <div className='timeline scroll' ref={ref} role='list' aria-label={t.meetingList}>
             {!blocks.length && (
                 <div className='empty' style={{ position: 'absolute', inset: 0 }}>
                     {emptyText ?? t.noMeetings}
@@ -116,85 +131,27 @@ export function Timeline({
                     </div>
                 ))}
                 {blocks.map((b) => {
-                    const e = b.event;
-                    const when = range(e.start, e.end, lang);
-                    const top = y(b.startMin) + 1;
                     const height = Math.max(22, ((b.endMin - b.startMin) * HOUR) / 60 - 2);
                     const colW = `calc((100% - 56px) / ${b.lanes})`;
-                    const link = joinUrlForActions(e);
-                    // A link to anything but a known service: its host is the only thing that tells an invitation
-                    // from a stranger apart from a real one, so it is shown before the link is opened.
-                    const host = joinHost(e.platform, link);
-                    const joinLabel = host ? `${t.join} · ${host}` : t.join;
-                    const past = isToday && b.endMin <= nowMin;
-                    const short = height < 40;
                     return (
-                        <div
-                            key={e.id}
-                            className={`blk${selectedId === e.id ? ' selected' : ''}${past ? ' past' : ''}${isEffectivelyCancelled(e) ? ' cancelled' : ''}${e.responseType === 'tentative' ? ' tentative' : ''}${e.responseType === 'declined' ? ' declined' : ''}${b.lanes > 1 ? ' compact' : ''}`}
+                        <TimelineMeeting
+                            key={b.event.id}
+                            block={b}
+                            noted={noted}
+                            t={t}
+                            lang={lang}
+                            onOpen={onOpen}
+                            onJoin={onJoin}
+                            selectedId={selectedId}
+                            past={isToday && b.endMin <= nowMin}
+                            height={height}
                             style={{
-                                top,
+                                top: y(b.startMin) + 1,
                                 height,
                                 left: `calc(56px + ${colW} * ${b.lane} + 1px)`,
                                 width: `calc(${colW} - 3px)`,
-                                ['--c' as string]: eventColor(e),
                             }}
-                            role='listitem'
-                            {...meetingMenuProps(e.id)}
-                        >
-                            <button
-                                type='button'
-                                style={{
-                                    position: 'absolute',
-                                    inset: 0,
-                                    textAlign: 'left',
-                                    padding: '3px 28px 0 11px',
-                                    width: '100%',
-                                }}
-                                onClick={() => onOpen(e)}
-                                aria-label={`${displayTitle(e)}, ${when}`}
-                            >
-                                <div className='t nowrap'>
-                                    {displayTitle(e)}
-                                    {noted.has(e.id) && (
-                                        <span
-                                            className='note-mark'
-                                            title={t.noteMarker}
-                                            aria-label={t.noteMarker}
-                                        >
-                                            <Icon name='pencil' size={11} color='currentColor' />
-                                        </span>
-                                    )}
-                                </div>
-                                <div className='m nowrap tnum'>
-                                    {when}
-                                    {host && (
-                                        <React.Fragment>
-                                            {' · '}
-                                            <span className='join-host'>{host}</span>
-                                        </React.Fragment>
-                                    )}
-                                    {short ? '' : e.organizer ? ` · ${e.organizer}` : ''}
-                                    {e.isOrganizer && !short && b.lanes === 1 && (
-                                        <React.Fragment>
-                                            {' '}
-                                            <span className='badge'>{t.organizerBadge}</span>
-                                        </React.Fragment>
-                                    )}
-                                </div>
-                            </button>
-                            {link && (
-                                <button
-                                    type='button'
-                                    className='join-dot'
-                                    onClick={() => onJoin(e)}
-                                    title={joinLabel}
-                                    aria-label={`${joinLabel}: ${displayTitle(e)}`}
-                                >
-                                    <Icon name='joinCircle' size={18} color='currentColor' />
-                                </button>
-                            )}
-                        </div>
+                        />
                     );
                 })}
                 {isToday && <div className='tl-now' style={{ top: y(nowMin) }} />}

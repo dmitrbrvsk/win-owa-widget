@@ -27,6 +27,8 @@ import { meetingMenuItems } from '../shared/meetingMenu';
 import { linksInText, safeUrl, urlHost } from '../shared/meetingUrl';
 import { privateEvent } from '../shared/privacy';
 import { replyBody, replyConfirmText } from '../shared/replyText';
+import { SnapshotPublisher, snapshotScope } from '../shared/snapshotTransport';
+import { type SnapshotState } from '../shared/snapshotTypes';
 import { trayPresentation } from '../shared/status';
 import { oneLine } from '../shared/text';
 import { doneText, noteToast, reminderToast } from '../shared/toasts';
@@ -43,7 +45,6 @@ import {
     type MeetingReplyInput,
     type ReminderPayload,
     type SettingsUpdate,
-    type Snapshot,
 } from '../shared/types';
 import {
     isFingerprint,
@@ -71,6 +72,7 @@ import { describeError, log, logPath } from './log';
 import { MeetingGate, SlidingWindow } from './meetingGate';
 import { ReminderScheduler } from './reminders';
 import { installRendererProtocol, registerRendererScheme } from './rendererProtocol';
+import { afterRendererReady } from './rendererReady';
 import { hardenSession, hardenWebContents, isTrustedSender } from './security';
 import { isFirstRun } from './store';
 import { closeAllToasts, showToast, toastsSupported } from './toasts';
@@ -268,10 +270,9 @@ function refreshOpenableLinks() {
 function visibleEvents(events: CalendarEvent[]): CalendarEvent[] {
     return service.settings.privacyMode ? events.map((e) => privateEvent(e, uiLang())) : events;
 }
-function snapshot(): Snapshot {
+function snapshotState(): SnapshotState {
     refreshOpenableLinks();
     return {
-        events: visibleEvents(service.events),
         sync: service.settings.privacyMode
             ? {
                   phase: service.sync.phase,
@@ -292,8 +293,20 @@ function snapshot(): Snapshot {
     };
 }
 
+const snapshotPublisher = new SnapshotPublisher();
+function snapshotSource() {
+    return {
+        state: snapshotState(),
+        events: service.events,
+        scope: snapshotScope(service.accountRevision, service.settings, uiLang()),
+        project: () => visibleEvents(service.events),
+    };
+}
+function snapshot() {
+    return snapshotPublisher.capture(snapshotSource(), true);
+}
 function broadcast() {
-    const s = snapshot();
+    const s = snapshotPublisher.capture(snapshotSource());
     for (const w of BrowserWindow.getAllWindows())
         if (!w.isDestroyed()) w.webContents.send(IPC.snapshot, s);
     updateTrayMenu();
@@ -623,13 +636,19 @@ function showReminder(events: CalendarEvent[]) {
 
 /** Brings the widget forward, on one meeting when it is known. */
 function openMeeting(eventId?: string) {
-    const fresh = !popup || popup.isDestroyed();
     showPopup();
-    if (!eventId) return;
-    const send = () => popup?.webContents.send(IPC.openEvent, eventId);
-    // A popup that was released is rebuilt: its page listens only after it has started, so the request waits for that.
-    if (fresh && popup) popup.webContents.once('did-finish-load', () => setTimeout(send, 400));
-    else send();
+    if (!eventId || !popup) return;
+    const win = popup;
+    const revision = service.accountRevision;
+    afterRendererReady(win.webContents, () => {
+        if (
+            win.isDestroyed() ||
+            service.accountRevision !== revision ||
+            service.settings.privacyMode
+        )
+            return;
+        win.webContents.send(IPC.openEvent, eventId);
+    });
 }
 
 // ---------- Join ----------

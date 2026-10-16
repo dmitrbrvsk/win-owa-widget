@@ -10,9 +10,10 @@ const SHIPPED_CONNECT_SRC = " connect-src 'none';";
 const DEV_CONNECT_SRC = ` connect-src 'self' ws://localhost:${DEV_SERVER_PORT};`;
 
 // Renderer only. Main and preload are bundled by scripts/build-main.mjs (esbuild).
-export default defineConfig({
+export default defineConfig(({ command, mode }) => ({
     root: path.resolve(__dirname, 'src/renderer'),
     base: './',
+    define: { BROWSER_DEMO_BUILD: JSON.stringify(command === 'serve' || mode === 'browser-demo') },
     plugins: [
         react(),
         {
@@ -33,9 +34,15 @@ export default defineConfig({
         },
     ],
     build: {
-        outDir: path.resolve(__dirname, 'dist/renderer'),
+        outDir: path.resolve(
+            __dirname,
+            mode === 'browser-demo' ? 'dist/browser-demo' : 'dist/renderer',
+        ),
         emptyOutDir: true,
         target: 'chrome140',
+        // Dynamic route chunks are loaded from this same private origin. Avoid Vite's preload
+        // fetch helper: Chromium applies connect-src to it, while shipped CSP forbids connections.
+        modulePreload: false,
     },
     server: { port: DEV_SERVER_PORT, strictPort: true },
-});
+}));

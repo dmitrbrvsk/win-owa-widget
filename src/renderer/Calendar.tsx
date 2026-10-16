@@ -13,11 +13,11 @@ import { dayTitle } from '../shared/format';
 import { searchEvents } from '../shared/search';
 import { type CalendarEvent, type CalendarSelection, type Snapshot } from '../shared/types';
 
+import { AllDayMeetings } from './AllDayMeetings';
 import { api } from './api';
 import { Detail } from './Detail';
-import { eventColor, ipcMessage, useI18n, useNow } from './hooks';
+import { ipcMessage, useI18n, useNow } from './hooks';
 import { Icon } from './icons';
-import { meetingMenuProps } from './meetingMenu';
 import { SearchBox, SearchResults } from './MeetingSearch';
 import { Timeline } from './Timeline';
 
@@ -238,25 +238,13 @@ export function Calendar({ snap }: { snap: Snapshot }) {
                         />
                     ) : (
                         <React.Fragment>
-                            {allDay.length > 0 && (
-                                <div className='allday'>
-                                    <span className='gutter'>{t.allDay}</span>
-                                    <div className='pills'>
-                                        {allDay.map((event) => (
-                                            <button
-                                                type='button'
-                                                key={event.id}
-                                                className={`pill nowrap${selectedId === event.id ? ' selected' : ''}`}
-                                                style={{ ['--c' as string]: eventColor(event) }}
-                                                onClick={() => open(event)}
-                                                {...meetingMenuProps(event.id)}
-                                            >
-                                                {displayTitle(event)}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
+                            <AllDayMeetings
+                                key={day.toDateString()}
+                                events={allDay}
+                                t={t}
+                                onOpen={open}
+                                selectedId={selectedId}
+                            />
                             <Timeline
                                 events={dayEvents}
                                 day={day}
