@@ -1752,8 +1752,9 @@ Start with these areas:
 - Right after updating, Settings → “Keyboard shortcuts” shows Ctrl+Alt+J, Ctrl+Alt+W and
   Ctrl+Alt+N. From another program (a browser, File Explorer) press Ctrl+Alt+W: the widget opens,
   and pressing it again hides it. Ctrl+Alt+N opens “Create meeting”.
-- Ctrl+Alt+J during a meeting with a link (or 10 minutes before it) opens the call; with two
-  meetings on and different links, the widget opens; with no meeting, the widget opens too. In
+- Ctrl+Alt+J during an accepted meeting with a Teams/Zoom link (or 10 minutes before it) opens
+  the call; with two meetings and different links, an unanswered invitation, a link to an
+  unfamiliar site, or no meeting, the widget opens. In
   Privacy mode no call is opened. The log contains no meeting titles.
 - In the settings click the “New meeting” field and press Ctrl+Shift+K: the field shows the
   combination and no create window opens. Ctrl+J (one modifier) and a combination already used by

@@ -147,7 +147,7 @@ export function Create({ snap }: { snap: Snapshot }) {
     useEffect(() => titleRef.current?.focus(), []);
 
     // People met most come first while typing, and as one-click chips under the field.
-    const frequent = useFrequent();
+    const frequent = useFrequent(snap.settings.privacyMode);
     const local = useMemo(
         () => mergePeople(frequent.people, localPeople(snap.events)),
         [frequent.people, snap.events],

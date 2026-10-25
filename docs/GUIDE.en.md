@@ -32,7 +32,7 @@ Details about features, connection and diagnostics. New interface demos are in t
 ### Calls
 
 - **Call links.** Teams, Zoom, Webex, Google Meet and KTalk links are detected in the online-meeting field, location and description. If a link points to an unfamiliar site, its actual address appears beside “Join” everywhere: in the window, timeline, search results, notification and tray menu.
-- **Keyboard shortcuts.** They work from any program: **Ctrl+Alt+J** joins the meeting that is on or starts within 10 minutes (when there are several, the widget opens and you choose), **Ctrl+Alt+W** shows or hides the widget, **Ctrl+Alt+N** starts a new meeting. Change or turn them off in the settings: use two of Ctrl, Alt and Shift (one of them Ctrl or Alt) and a letter, a digit or F1–F24. If another program already holds a combination, the settings say so. In privacy mode Ctrl+Alt+J opens no call; it shows the widget instead.
+- **Keyboard shortcuts.** They work from any program: **Ctrl+Alt+J** joins the meeting that is on or starts within 10 minutes (it opens at once only a meeting you accepted or run with a Teams, Zoom, Webex, Meet or KTalk link; with several calls, an unanswered invitation or a link to an unfamiliar site, the widget opens and shows where the link goes), **Ctrl+Alt+W** shows or hides the widget, **Ctrl+Alt+N** starts a new meeting. Change or turn them off in the settings: use two of Ctrl, Alt and Shift (one of them Ctrl or Alt) and a letter, a digit or F1–F24. If another program already holds a combination, the settings say so. In privacy mode Ctrl+Alt+J opens no call; it shows the widget instead.
 
 ### Invitations and meetings
 

@@ -490,6 +490,7 @@ function openSettings() {
         settingsWin = undefined;
         hotkeys.pause(false); // a recording left half-way must not leave the combinations off
     });
+    settingsWin.webContents.on('render-process-gone', () => hotkeys.pause(false));
 }
 
 /** First run: the settings, and when they are closed the widget shows itself once. */
@@ -1091,11 +1092,24 @@ function registerIpc() {
     handle(IPC.checkForUpdates, () => updates.check(app.getVersion()));
     handle(IPC.openUpdatePage, () => updates.open());
     // Everything about creating a meeting goes through this one gate (see meetingGate.ts for the order).
+    // The gate runs one meeting at a time: the account is noted before the dialog opens and checked
+    // after it, so switching accounts meanwhile sends nothing from the other one.
+    let createRevision = -1;
     const meetingGate = new MeetingGate({
-        confirm: confirmInvitations,
+        confirm: (m) => {
+            createRevision = service.accountRevision;
+            return confirmInvitations(m);
+        },
         deliver: async (m) => {
+            if (service.accountRevision !== createRevision)
+                throw new Error('Аккаунт изменился во время подтверждения: встреча не отправлена');
             await service.createMeeting(m);
-            service.local.rememberMeeting(m, service.events);
+            // The meeting is sent: remembering its people must never make it look failed (and resent).
+            try {
+                service.local.rememberMeeting(m, service.events);
+            } catch (e) {
+                log.warn(`recent: not saved: ${describeError(e)}`);
+            }
         },
     });
     // A page that asks the directory more than this is not someone typing.

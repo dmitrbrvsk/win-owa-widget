@@ -13,9 +13,15 @@ import { Icon } from './icons';
 const MAX_PEOPLE_CHIPS = 6;
 const MAX_PLACE_CHIPS = 4;
 
-export function useFrequent(): FrequentSuggestions {
-    const [frequent, setFrequent] = useState<FrequentSuggestions>({ people: [], places: [] });
+const NONE: FrequentSuggestions = { people: [], places: [] };
+
+/** Asked again whenever the privacy mode is switched off: while it is on, the window holds no names or places. */
+export function useFrequent(privacy: boolean): FrequentSuggestions {
+    const [frequent, setFrequent] = useState<FrequentSuggestions>(NONE);
+    // Dropped as soon as the privacy mode is on, not only hidden.
+    if (privacy && frequent !== NONE) setFrequent(NONE);
     useEffect(() => {
+        if (privacy) return;
         let alive = true;
         api.getFrequent()
             .then((f) => {
@@ -25,8 +31,8 @@ export function useFrequent(): FrequentSuggestions {
         return () => {
             alive = false;
         };
-    }, []);
-    return frequent;
+    }, [privacy]);
+    return privacy ? NONE : frequent;
 }
 
 export function PeopleChips({
@@ -44,7 +50,7 @@ export function PeopleChips({
     if (!shown.length) return null;
     return (
         <div className='form-row tight'>
-            <span className='form-label hint'>{t.frequentPeople}</span>
+            <span className='form-label hint'>{t.frequentLabel}</span>
             <div className='quick-chips'>
                 {shown.map((p) => (
                     <button
@@ -78,7 +84,7 @@ export function PlaceChips({
     if (location.trim() || !places.length) return null;
     return (
         <div className='form-row tight'>
-            <span className='form-label hint'>{t.frequentPeople}</span>
+            <span className='form-label hint'>{t.frequentLabel}</span>
             <div className='quick-chips'>
                 {places.slice(0, MAX_PLACE_CHIPS).map((p) => (
                     <button

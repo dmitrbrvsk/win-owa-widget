@@ -66,10 +66,13 @@ export type RecordedKey =
     { kind: 'combo'; accelerator: string } | { kind: 'partial' } | { kind: 'invalid' };
 
 /**
- * Reads a key press by its physical key (`code`), so a Russian layout records the same "J" as an
- * English one. Modifiers on their own are a combination still being pressed.
+ * Reads a key press the way Windows will match it: a Latin letter as the layout types it (on a
+ * German keyboard the key labelled Z is "Z"), and by its physical key (`code`) when the layout types
+ * something else, so a Russian layout records the same "J" as an English one. Modifiers on their own
+ * are a combination still being pressed.
  */
 export function acceleratorFromKey(ev: {
+    key?: string;
     code: string;
     ctrlKey: boolean;
     altKey: boolean;
@@ -80,7 +83,8 @@ export function acceleratorFromKey(ev: {
     if (ev.metaKey) return { kind: 'invalid' };
     const m = /^(?:Key([A-Z])|Digit([0-9])|(F(?:[1-9]|1[0-9]|2[0-4])))$/.exec(ev.code);
     if (!m) return { kind: 'invalid' };
-    const key = m[1] ?? m[2] ?? m[3];
+    const latin = m[1] && ev.key && /^[a-z]$/i.test(ev.key) ? ev.key.toUpperCase() : undefined;
+    const key = latin ?? m[1] ?? m[2] ?? m[3];
     const raw = [ev.ctrlKey && 'Ctrl', ev.altKey && 'Alt', ev.shiftKey && 'Shift', key]
         .filter(Boolean)
         .join('+');
@@ -119,20 +123,19 @@ export type JoinChoice =
     | { kind: 'none' };
 
 /**
- * What the "join" combination does now: the one meeting that is on (or starts within ten minutes)
- * with a call link. When several are, and they are not the same call, the person chooses in the
- * widget: a key press must not guess which call to walk into. Meetings the person accepted or runs
- * win over invitations left unanswered.
+ * What the "join" combination does now. A call opens at once only when it is unambiguous and its
+ * address needs no second look: one meeting the person accepted or runs, on (or within ten
+ * minutes), with a link to a known call service. Anything else — several calls, an invitation
+ * nobody answered, a link to an unfamiliar site (shown with its real host in the widget) — opens
+ * the widget, where the person sees where each link goes and chooses.
  */
 export function joinChoice(events: CalendarEvent[], now: Date): JoinChoice {
     const all = joinCandidates(events, now);
     if (!all.length) return { kind: 'none' };
     const engaged = all.filter(isEngaged);
-    const pool = engaged.length ? engaged : all;
-    const urls = new Set(pool.map((e) => joinUrlForActions(e)));
-    if (urls.size === 1) {
-        const event = pool[0];
+    const urls = new Set(engaged.map((e) => joinUrlForActions(e)));
+    const [event] = engaged;
+    if (urls.size === 1 && event && event.platform !== 'generic')
         return { kind: 'join', event, url: joinUrlForActions(event)! };
-    }
-    return { kind: 'choose', events: pool };
+    return { kind: 'choose', events: all };
 }

@@ -168,6 +168,29 @@ describe('which call the join combination opens', () => {
         expect(c.kind).toBe('join');
         if (c.kind === 'join') expect(c.event.id).toBe('mine');
     });
+
+    it('an unanswered invitation or a link to an unfamiliar site is never opened blindly', () => {
+        // The widget shows such a link with its real host; a key press would not.
+        expect(joinChoice([ev('invite', -5, 30, { responseType: 'notResponded' })], now).kind).toBe(
+            'choose',
+        );
+        const phishing = ev('odd', -5, 30, {
+            platform: 'generic',
+            joinUrl: 'https://teams-login.example/join',
+        });
+        expect(joinChoice([phishing], now).kind).toBe('choose');
+    });
+});
+
+describe('recording on other layouts', () => {
+    it('a Latin letter is taken as the layout types it (German Z), Cyrillic falls back to the physical key', () => {
+        const de = { ...key('KeyY', { ctrlKey: true, altKey: true }), key: 'z' };
+        expect(acceleratorFromKey(de)).toEqual({ kind: 'combo', accelerator: 'Ctrl+Alt+Z' });
+        const ru = { ...key('KeyJ', { ctrlKey: true, altKey: true }), key: 'о' };
+        expect(acceleratorFromKey(ru)).toEqual({ kind: 'combo', accelerator: 'Ctrl+Alt+J' });
+        const digit = { ...key('Digit5', { ctrlKey: true, shiftKey: true }), key: '%' };
+        expect(acceleratorFromKey(digit)).toEqual({ kind: 'combo', accelerator: 'Ctrl+Shift+5' });
+    });
 });
 
 describe('the main process and the combinations', () => {
@@ -182,6 +205,19 @@ describe('the main process and the combinations', () => {
         expect(main).not.toMatch(/globalShortcut/);
         expect(main).toMatch(/will-quit[\s\S]{0,120}hotkeys\.stop\(\)/);
         expect(main).toMatch(/hotkeys\.apply\(service\.settings\.hotkeys\)/);
+    });
+    it('a sent meeting is never reported failed because its people could not be remembered', () => {
+        expect(main).toMatch(
+            /await service\.createMeeting\(m\);[\s\S]{0,160}try \{\s*service\.local\.rememberMeeting\(m, service\.events\);\s*\} catch/,
+        );
+    });
+    it('switching accounts while the confirmation is open sends nothing from the other account', () => {
+        expect(main).toMatch(
+            /confirm: \(m\) => \{\s*createRevision = service\.accountRevision;\s*return confirmInvitations\(m\);/,
+        );
+        expect(main).toMatch(
+            /if \(service\.accountRevision !== createRevision\)\s*throw new Error\([^)]*\);\s*await service\.createMeeting\(m\)/,
+        );
     });
     it('only the settings window may pause them, and closing it resumes them', () => {
         expect(main).toMatch(

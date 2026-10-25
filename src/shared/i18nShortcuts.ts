@@ -6,7 +6,7 @@ export const ruShortcuts = {
     hotkeysHint: 'Работают из любой программы. Нажмите на поле, затем сочетание клавиш.',
     hotkeyJoin: 'Подключиться к текущей встрече',
     hotkeyJoinHint:
-        'Встреча со ссылкой, которая идёт или начнётся в ближайшие 10 минут. Если таких несколько, откроется виджет — выберите в нём.',
+        'Встреча, которую вы приняли или ведете, со ссылкой Teams, Zoom, Webex, Meet или KTalk — если она идет или начнется в ближайшие 10 минут. В остальных случаях откроется виджет: выберите звонок в нём.',
     hotkeyOpen: 'Открыть или скрыть виджет',
     hotkeyCreate: 'Новая встреча',
     hotkeyOff: 'Выключено',
@@ -29,7 +29,7 @@ export const ruShortcuts = {
     freeCreate: 'Создать встречу в это время',
     longStretch: (dur: string, range: string) => `${dur} встреч без перерыва: ${range}`,
     // frequent people and places
-    frequentPeople: 'Часто',
+    frequentLabel: 'Часто',
     frequentAdd: (name: string) => `Добавить: ${name}`,
     frequentPlace: (place: string) => `Место: ${place}`,
     frequentHint:
@@ -45,7 +45,7 @@ export const enShortcuts: typeof ruShortcuts = {
     hotkeysHint: 'They work from any program. Click a field, then press the combination.',
     hotkeyJoin: 'Join the current meeting',
     hotkeyJoinHint:
-        'A meeting with a link that is on or starts within 10 minutes. When there are several, the widget opens so you can choose.',
+        'A meeting you accepted or run, with a Teams, Zoom, Webex, Meet or KTalk link — when it is on or starts within 10 minutes. Otherwise the widget opens so you can choose the call there.',
     hotkeyOpen: 'Show or hide the widget',
     hotkeyCreate: 'New meeting',
     hotkeyOff: 'Off',
@@ -66,7 +66,7 @@ export const enShortcuts: typeof ruShortcuts = {
     freeBlock: 'Free',
     freeCreate: 'Create a meeting at this time',
     longStretch: (dur, range) => `${dur} of meetings with no break: ${range}`,
-    frequentPeople: 'Frequent',
+    frequentLabel: 'Frequent',
     frequentAdd: (name) => `Add: ${name}`,
     frequentPlace: (place) => `Place: ${place}`,
     frequentHint:

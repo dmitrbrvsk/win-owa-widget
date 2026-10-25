@@ -52,8 +52,11 @@ export class HotkeyController {
 
     private register(): void {
         globalShortcut.unregisterAll();
+        // While a field records, nothing is registered, and what Windows refused stays as it was:
+        // the "taken by another program" note must not vanish because a field got the focus.
+        if (this.paused) return;
         const problems: HotkeyAction[] = [];
-        if (!this.paused && this.keys) {
+        if (this.keys) {
             for (const action of HOTKEY_ACTIONS) {
                 const accelerator = this.keys[action];
                 if (!accelerator) continue;
