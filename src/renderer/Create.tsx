@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { dedupeEmails, emailKey, parseAddressList } from '../shared/email';
 import { duration } from '../shared/format';
+import { mergePeople } from '../shared/frequent';
 import {
     dateText,
     defaultSlot,
@@ -27,6 +28,7 @@ import { MAX_MEETING_ATTENDEES, MAX_MEETING_BODY, MAX_OCCURRENCES } from '../sha
 
 import { Alert } from './Alert';
 import { api } from './api';
+import { PeopleChips, PlaceChips, useFrequent } from './FrequentChips';
 import { ipcMessage, useI18n } from './hooks';
 import { Icon } from './icons';
 import { PeopleField } from './PeopleField';
@@ -144,7 +146,12 @@ export function Create({ snap }: { snap: Snapshot }) {
 
     useEffect(() => titleRef.current?.focus(), []);
 
-    const local = useMemo(() => localPeople(snap.events), [snap.events]);
+    // People met most come first while typing, and as one-click chips under the field.
+    const frequent = useFrequent();
+    const local = useMemo(
+        () => mergePeople(frequent.people, localPeople(snap.events)),
+        [frequent.people, snap.events],
+    );
     const taken = useMemo(
         () => new Set([...form.required, ...form.optional].map(emailKey)),
         [form.required, form.optional],
@@ -501,6 +508,12 @@ export function Create({ snap }: { snap: Snapshot }) {
                             problem={problems.required}
                         />
                     </div>
+                    <PeopleChips
+                        people={frequent.people}
+                        taken={taken}
+                        t={t}
+                        onAdd={(p) => addPeople('required', [p.email], { [p.email]: p.name })}
+                    />
 
                     <div className='form-row'>
                         <span className='form-label'>{t.fieldOptionalPeople}</span>
@@ -536,6 +549,12 @@ export function Create({ snap }: { snap: Snapshot }) {
                             onChange={(e) => patch({ location: e.target.value })}
                         />
                     </div>
+                    <PlaceChips
+                        places={frequent.places}
+                        location={form.location}
+                        t={t}
+                        onPick={(place) => patch({ location: place.slice(0, FIELD_MAX) })}
+                    />
 
                     <div className='form-row'>
                         <label htmlFor='cm-body'>{t.fieldBody}</label>

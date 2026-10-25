@@ -14,6 +14,7 @@ import { DEFAULT_SETTINGS } from './store.defaults';
 export { DEFAULT_SETTINGS };
 export { loadParticipantGroups, saveParticipantGroups } from './groupStorage';
 export { hasUnassignedNotes, loadNotes, saveNotes } from './noteStorage';
+export { loadRecent, removeRecent, saveRecent } from './recentStorage';
 
 /** No settings file yet: the very first launch, when the settings window should open to confirm the defaults. */
 export function isFirstRun(): boolean {

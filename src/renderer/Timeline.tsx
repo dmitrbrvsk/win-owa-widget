@@ -1,12 +1,14 @@
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 
 import { sameDay } from '../shared/events';
+import { type Span } from '../shared/freeTime';
 import { type Dict, type Lang } from '../shared/i18n';
 import { usesMeetingPages } from '../shared/meetingPages';
 import { layoutDay, visibleRange, type Workday } from '../shared/timeline';
 import { type CalendarEvent } from '../shared/types';
 
 import { DenseDayTimeline } from './DenseDayTimeline';
+import { FreeBlocks } from './FreeTime';
 import { TimelineMeeting } from './TimelineMeeting';
 
 const HOUR = 64; // px per hour
@@ -24,6 +26,8 @@ interface Props {
     noteIds: string[];
     emptyText?: string;
     selectedId?: string | null;
+    /** Free windows of this day (empty when the setting is off); a click starts a meeting there. */
+    free?: Span[];
 }
 
 export function Timeline({
@@ -38,6 +42,7 @@ export function Timeline({
     noteIds,
     emptyText,
     selectedId,
+    free = [],
 }: Props) {
     const noted = useMemo(() => new Set(noteIds), [noteIds]);
     const ref = useRef<HTMLDivElement>(null);
@@ -130,6 +135,7 @@ export function Timeline({
                         <div className='tl-line half' style={{ top: y(h * 60) + HOUR / 2 }} />
                     </div>
                 ))}
+                <FreeBlocks free={free} day={day} y={y} hourPx={HOUR} t={t} lang={lang} />
                 {blocks.map((b) => {
                     const height = Math.max(22, ((b.endMin - b.startMin) * HOUR) / 60 - 2);
                     const colW = `calc((100% - 56px) / ${b.lanes})`;

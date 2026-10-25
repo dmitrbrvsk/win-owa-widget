@@ -25,12 +25,14 @@ Details about features, connection and diagnostics. New interface demos are in t
 - **Window by the tray.** Opens next to the icon at any edge of the screen. It contains the next meeting with a “Join” button (from 30 minutes before the start until the meeting ends), a strip of the day's meetings, and a timeline with a red “now” line. Overlapping meetings appear side by side.
 - **Large calendar window.** “Calendar…” in the tray menu or the widget's expand button opens the schedule and the selected meeting's details side by side. It opens maximized the first time; you can resize it and move it to another monitor. Closing it leaves the app in the tray. Opening it from a meeting's details preserves the day and selected meeting. Ctrl+F opens search; date selection and search use meetings already loaded and do not request an archive from the server. Privacy mode also applies to this window.
 - **Working day.** The timeline shows working hours only (08:00–20:00 by default, configurable); meetings outside those hours still appear because the range expands to include them.
+- **Free windows and back-to-back meetings.** Gaps of 30 minutes or more within working hours are outlined on the timeline; above it you see today's next free window, and a warning when meetings run for 3 hours or more with no break. Clicking a window starts a new meeting there (at most an hour long). Computed from the meetings already loaded, nothing is sent to the server; unanswered invitations count as busy, as in Exchange. Turn it off in the settings (Appearance).
 - **Meeting details.** Attendees and their responses, the full description with links, copying the link or “title + time + link”. The same actions are available by right-clicking a meeting on the timeline.
 - **Meeting search.** Press Ctrl+F or `/` in the window; Esc closes it. Searches the title, organizer, location, categories and the beginning of the description; every search word must match. The Russian letters U+0435 and U+0451 are treated as equivalent. Only meetings already loaded are searched; the query is neither sent to the server nor written to the log.
 
 ### Calls
 
 - **Call links.** Teams, Zoom, Webex, Google Meet and KTalk links are detected in the online-meeting field, location and description. If a link points to an unfamiliar site, its actual address appears beside “Join” everywhere: in the window, timeline, search results, notification and tray menu.
+- **Keyboard shortcuts.** They work from any program: **Ctrl+Alt+J** joins the meeting that is on or starts within 10 minutes (when there are several, the widget opens and you choose), **Ctrl+Alt+W** shows or hides the widget, **Ctrl+Alt+N** starts a new meeting. Change or turn them off in the settings: use two of Ctrl, Alt and Shift (one of them Ctrl or Alt) and a letter, a digit or F1–F24. If another program already holds a combination, the settings say so. In privacy mode Ctrl+Alt+J opens no call; it shows the widget instead.
 
 ### Invitations and meetings
 
@@ -61,6 +63,7 @@ More details about the main features follow.
 Open it with the “+” button in the tray window, “Create meeting…” in the tray menu, or “Create a meeting at this time” in the free-time window (the time is filled in automatically).
 
 - **Attendees.** “Required” and “Optional”. Start typing a name or address to get suggestions from the Exchange address book. Paste a complete address or a list separated by commas, semicolons or newlines. Only ordinary addresses using Latin letters and digits are accepted: addresses with lookalike Cyrillic letters are rejected so an invitation is not sent to an impersonator.
+- **Frequent people and places.** Under the attendee field are buttons with the people you meet most, and under the location field the rooms you use most. One click adds the person or fills in the place. The list is built on your computer from the meetings created in the widget and from the organizers and locations of your calendar. It is kept per account in an encrypted file and hidden in privacy mode; “Forget frequent people” is in Settings → Diagnostics.
 - **Time.** Start and end dates and times, with quick duration choices of 30 / 45 minutes or 1 hour. Times are sent to the server as exact instants, so daylight-saving transitions do not shift them.
 - **Confirmation.** When a meeting has attendees, Windows shows a **native dialog** before sending, containing the subject, time, location, beginning of the description and recipients (the first 15, then “and N more”). It is built from the data that will be sent to the server and defaults to “Cancel”. The meeting-creation window cannot press its buttons: even a compromised interface page cannot send invitations. A personal meeting without attendees also requires native confirmation before it is saved.
 - **Limits.** At most 10 meetings and 300 invitees per hour; one send operation at a time; no more than 12 confirmation requests per 10 minutes. This guards against accidental loops and a stuck page.
@@ -225,6 +228,12 @@ Press Ctrl+F or `/` in the tray window. Searches titles, organizers, locations a
 <summary><b>How do I copy a meeting title or link?</b></summary>
 
 Right-click a meeting on the timeline for “Copy title”, “Copy link” (if available) and “Copy title, time and link”. These actions are also in meeting details.
+</details>
+
+<details>
+<summary><b>A shortcut does nothing, or gets in the way of another program</b></summary>
+
+Windows does not hand over a combination another program already holds: Settings → “Keyboard shortcuts” shows “Taken by another program” next to it. The other way round, other programs no longer receive a combination the widget has registered. For example, in IntelliJ IDEA and WebStorm **Ctrl+Alt+N** is Inline and **Ctrl+Alt+J** is Surround with Live Template. Click the field and press another combination, or turn it off with the cross, then “Save”.
 </details>
 
 ### Creating meetings and finding free time
@@ -422,6 +431,18 @@ Light and dark themes follow Windows. The window opens beside the tray icon.
 <p align="center">
   <img src="screenshots/propose-dark.png" width="320" alt="Proposing another time: new time and a comment for the organizer, dark theme">
   <img src="screenshots/note-dark.png" width="320" alt="Personal note in meeting details, dark theme">
+</p>
+
+### Free windows, keyboard shortcuts and frequent people
+
+<p align="center">
+  <img src="screenshots/free-time-light.png" width="320" alt="Day timeline: free windows outlined, the next free window above">
+  <img src="screenshots/free-time-dark.png" width="320" alt="Warning about three hours of meetings with no break, dark theme">
+</p>
+
+<p align="center">
+  <img src="screenshots/hotkeys-dark.png" width="400" alt="Settings: shortcuts to join, open the widget and start a new meeting">
+  <img src="screenshots/frequent-light.png" width="400" alt="New meeting: frequent people and places in one click">
 </p>
 
 ### Meeting search

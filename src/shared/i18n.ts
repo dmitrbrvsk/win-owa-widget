@@ -1,7 +1,9 @@
 // Russian and English strings. Russian is the default; "system" follows the Windows UI language.
+import { enShortcuts, ruShortcuts } from './i18nShortcuts';
 import { type LanguagePref } from './types';
 
 const ru = {
+    ...ruShortcuts,
     calendarTitle: 'Календарь',
     calendarExpand: 'Развернуть календарь',
     calendarPickDay: 'Выбрать день',
@@ -489,6 +491,7 @@ type Dict = typeof ru;
 
 const en: Dict = {
     ...ru,
+    ...enShortcuts,
     calendarTitle: 'Calendar',
     calendarExpand: 'Expand calendar',
     calendarPickDay: 'Choose a day',

@@ -69,6 +69,7 @@ import { changedFields } from './owa/ewsMeeting';
 import { confirmAccountRecovery } from './accountRecovery';
 import { CalendarService } from './calendarService';
 import { confirmCertificateTrust } from './certificateConsent';
+import { HotkeyController, hotkeyJoinUrl } from './hotkeys';
 import { describeError, log, logPath } from './log';
 import { MeetingGate, SlidingWindow } from './meetingGate';
 import { ReminderScheduler } from './reminders';
@@ -175,6 +176,19 @@ const MENU_GUARD_MS = 120_000;
 let service: CalendarService;
 let mcp: McpController;
 let reminders: ReminderScheduler;
+// System-wide key combinations (see hotkeys.ts); their handlers are the functions declared below.
+const hotkeys = new HotkeyController(
+    {
+        join: () => {
+            const url = hotkeyJoinUrl(service.events, service.settings.privacyMode);
+            if (url) void openExternal(url);
+            else showPopup();
+        },
+        open: () => (popup?.isVisible() ? hidePopup() : showPopup()),
+        create: () => openCreateMeeting(),
+    },
+    () => broadcast(),
+);
 
 /** 16×16 calendar outline, used until the renderer draws the live icon. */
 function placeholderIcon() {
@@ -291,6 +305,7 @@ function snapshotState(): SnapshotState {
         participantGroups: service.settings.privacyMode
             ? { account: 'private', groups: [] }
             : service.participantGroupState(),
+        hotkeyProblems: hotkeys.problems,
     };
 }
 
@@ -473,6 +488,7 @@ function openSettings() {
     settingsWin = createSettings(service.settings.theme);
     settingsWin.on('closed', () => {
         settingsWin = undefined;
+        hotkeys.pause(false); // a recording left half-way must not leave the combinations off
     });
 }
 
@@ -743,7 +759,7 @@ function updateTrayMenu() {
     const join = service.settings.privacyMode ? [] : joinCandidates(service.events, new Date());
     tray.setContextMenu(
         Menu.buildFromTemplate([
-            { label: 'Открыть', click: showPopup },
+            { label: 'Открыть', click: showPopup, ...hotkeys.hint('open') },
             { label: `${dict(uiLang()).calendarTitle}…`, click: () => openCalendar() },
             // A link to an unfamiliar site shows where it goes, as the buttons in the windows do.
             // The title is a stranger's text: one line, so it cannot run into the item's shortcut column or below it.
@@ -752,8 +768,13 @@ function updateTrayMenu() {
                 click: () => {
                     void openExternal(joinUrlForActions(e)!);
                 },
+                ...(join.length === 1 ? hotkeys.hint('join') : {}),
             })),
-            { label: 'Создать встречу…', click: () => openCreateMeeting() },
+            {
+                label: 'Создать встречу…',
+                click: () => openCreateMeeting(),
+                ...hotkeys.hint('create'),
+            },
             {
                 label: 'Обновить',
                 click: () => {
@@ -1072,7 +1093,10 @@ function registerIpc() {
     // Everything about creating a meeting goes through this one gate (see meetingGate.ts for the order).
     const meetingGate = new MeetingGate({
         confirm: confirmInvitations,
-        deliver: (m) => service.createMeeting(m),
+        deliver: async (m) => {
+            await service.createMeeting(m);
+            service.local.rememberMeeting(m, service.events);
+        },
     });
     // A page that asks the directory more than this is not someone typing.
     const peopleLookups = new SlidingWindow(60, 60_000);
@@ -1199,8 +1223,19 @@ function registerIpc() {
         const q = parsePeopleQuery(query);
         if (!q || !peopleLookups.allows(Date.now())) return [];
         peopleLookups.take(Date.now());
-        return service.resolvePeople(q);
+        return service.local.recent.keepNames(await service.resolvePeople(q));
     });
+    // Only the settings page records combinations, so only it may let them go for a moment.
+    handle(IPC.pauseHotkeys, (e, paused) => {
+        if (BrowserWindow.fromWebContents(e.sender) === settingsWin) hotkeys.pause(paused === true);
+    });
+    // Local only: the people and places remembered for this account and the calendar already loaded.
+    handle(IPC.getFrequent, () =>
+        service.settings.privacyMode
+            ? { people: [], places: [] }
+            : service.local.recent.frequent(service.events),
+    );
+    handle(IPC.forgetFrequent, () => service.local.recent.forget());
     handle(IPC.createMeeting, async (_e, input) => {
         try {
             const result = await meetingGate.submit(input);
@@ -1377,6 +1412,7 @@ app.on('window-all-closed', () => {
 });
 app.on('will-quit', () => {
     trayPulse.stop();
+    hotkeys.stop();
     rmSync(instanceFile(), { force: true });
 });
 
@@ -1452,8 +1488,10 @@ void app.whenReady().then(async () => {
         }
         applyLoginItem();
         refreshTray();
+        hotkeys.apply(next.hotkeys);
     });
     service.start();
+    hotkeys.apply(service.settings.hotkeys);
     mcp = await createAppMcp(
         service,
         async (options) => (await askNative(options, settingsWin ?? undefined)) === 1,

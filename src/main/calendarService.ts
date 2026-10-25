@@ -111,7 +111,7 @@ export class CalendarService extends EventEmitter {
     private demoCreated: CalendarEvent[] = [];
     private demoCreatedDetails = new Map<string, EventDetails>();
     /** The person's notes on meetings. In demo mode they live in memory only. */
-    private readonly local: AccountData;
+    readonly local: AccountData;
     lastDiagnostics?: ConnectionDiagnostics;
     private readonly testGate = new RequestGate(1, 6, 60_000);
     /** Free/busy lookups: one at a time and 30 in ten minutes, whatever the window asks for. */

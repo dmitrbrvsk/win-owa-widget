@@ -2,6 +2,7 @@
 import { version as appVersion } from '../../package.json';
 import * as demo from '../main/demo';
 import { initialDiagnostics, supportReport } from '../shared/diagnostics';
+import { DEFAULT_HOTKEYS } from '../shared/hotkeys';
 import { participantGroupAccount, ParticipantGroupBook } from '../shared/participantGroups';
 import { privateEvent } from '../shared/privacy';
 import {
@@ -13,6 +14,7 @@ import {
 } from '../shared/types';
 
 import { mockMcpApi } from './mcpMock';
+import { mockShortcutsApi } from './shortcutsMock';
 
 export function mockApi(): OwaApi {
     const params = new URLSearchParams(location.search);
@@ -35,6 +37,8 @@ export function mockApi(): OwaApi {
         popupSize: 'regular',
         welcomeDone: true,
         privacyMode: false,
+        hotkeys: { ...DEFAULT_HOTKEYS },
+        showFreeTime: params.get('free') !== 'off',
     };
     let snap: Snapshot = {
         events: demo.demoEvents(),
@@ -46,6 +50,8 @@ export function mockApi(): OwaApi {
         logPath: String.raw`C:\Users\you\AppData\Roaming\OWA Widget\logs\owa-widget.log`,
         noteIds: [],
         participantGroups: { account: participantGroupAccount(settings.account), groups: [] },
+        // `?hotkey=busy` rehearses a combination another program holds.
+        hotkeyProblems: params.get('hotkey') === 'busy' ? ['create'] : [],
     };
     let calendarSelection: CalendarSelection | null = null;
     const calendarListeners = new Set<(value: CalendarSelection) => void>();
@@ -80,6 +86,7 @@ export function mockApi(): OwaApi {
     window.addEventListener('hashchange', emit);
     return {
         ...mockMcpApi(),
+        ...mockShortcutsApi(() => snap.events),
         recoverAccountData: async () => {},
         getSnapshot: async () => view(),
         setPrivacyMode: async (enabled) => {

@@ -16,6 +16,7 @@ import { type CalendarEvent, type CalendarSelection, type Snapshot } from '../sh
 import { AllDayMeetings } from './AllDayMeetings';
 import { api } from './api';
 import { Detail } from './Detail';
+import { DayFree, useFreeTime } from './FreeTime';
 import { ipcMessage, useI18n, useNow } from './hooks';
 import { Icon } from './icons';
 import { SearchBox, SearchResults } from './MeetingSearch';
@@ -74,6 +75,12 @@ export function Calendar({ snap }: { snap: Snapshot }) {
     }, [message]);
 
     const dayEvents = useMemo(() => eventsOnDay(snap.events, day), [snap.events, day]);
+    const workday = {
+        startHour: snap.settings.workdayStartHour,
+        endHour: snap.settings.workdayEndHour,
+    };
+    const freeTime = useFreeTime(snap.settings.showFreeTime, snap.events, day, workday, now);
+    const today = day.toDateString() === now.toDateString();
     const allDay = dayEvents.filter((event) => event.isAllDay);
     const selected = dayEvents.find((event) => event.id === selectedId);
     const results = useMemo(() => searchEvents(snap.events, query, now), [snap.events, query, now]);
@@ -245,14 +252,19 @@ export function Calendar({ snap }: { snap: Snapshot }) {
                                 onOpen={open}
                                 selectedId={selectedId}
                             />
+                            <DayFree
+                                {...freeTime}
+                                isToday={today}
+                                workdayOver={now.getHours() >= workday.endHour}
+                                t={t}
+                                lang={lang}
+                            />
                             <Timeline
                                 events={dayEvents}
                                 day={day}
                                 now={now}
-                                workday={{
-                                    startHour: snap.settings.workdayStartHour,
-                                    endHour: snap.settings.workdayEndHour,
-                                }}
+                                workday={workday}
+                                free={freeTime.free}
                                 t={t}
                                 lang={lang}
                                 onOpen={open}

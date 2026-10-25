@@ -14,6 +14,7 @@ import { api } from './api';
 import { ConnectionDiagnostics } from './ConnectionDiagnostics';
 import { ipcMessage, useI18n } from './hooks';
 import { McpPanel } from './McpPanel';
+import { ForgetFrequentRow, FreeTimeRow, HotkeySettings } from './ShortcutSettings';
 import { UpdateCheck } from './UpdateCheck';
 
 function Switch({
@@ -515,7 +516,20 @@ export function Settings({ snap }: { snap: Snapshot }) {
                         <option value='large'>{t.sizeLarge}</option>
                     </select>
                 </div>
+                <FreeTimeRow
+                    value={s.showFreeTime}
+                    onChange={(v) => setS({ ...s, showFreeTime: v })}
+                    t={t}
+                />
             </div>
+
+            <HotkeySettings
+                value={s.hotkeys}
+                saved={snap.settings.hotkeys}
+                problems={snap.hotkeyProblems ?? []}
+                onChange={(hotkeys) => setS({ ...s, hotkeys })}
+                t={t}
+            />
 
             <UpdateCheck version={snap.version} t={t} />
             <h2>{t.diagnostics}</h2>
@@ -601,6 +615,7 @@ export function Settings({ snap }: { snap: Snapshot }) {
                         {t.notesDelete}
                     </button>
                 </div>
+                <ForgetFrequentRow t={t} />
                 <div className='setting-row'>
                     <div className='label'>
                         <div className='hint'>{t.clearCacheHint}</div>

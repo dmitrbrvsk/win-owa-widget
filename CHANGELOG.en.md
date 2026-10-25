@@ -8,6 +8,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.6.0] — 2026-10-25
+
+### New features
+
+- Keyboard shortcuts that work from any program: Ctrl+Alt+J joins the current meeting, Ctrl+Alt+W shows or hides the widget, Ctrl+Alt+N starts a new meeting. Change or turn them off in the settings; combinations held by another program are flagged.
+- Free windows on the timeline (in the widget and the large calendar window): gaps of 30 minutes or more within working hours, today's next free window and a warning about 3 hours of meetings with no break. Clicking a window starts a new meeting at that time.
+- Frequent people and places in the new meeting form: added in one click and offered first in suggestions.
+
+### Security and data
+
+- Frequent people are stored locally, per account and encrypted; they are hidden in privacy mode and can be deleted in the settings.
+- The app registers only the combinations from the settings and does not see any other keyboard input. In privacy mode Ctrl+Alt+J opens no call.
+
 ## [1.5.0] — 2026-10-16
 
 ### New features
@@ -146,7 +159,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - First-run introduction, light and dark themes, and Russian and English interfaces.
 - RSVP result confirmation and protection against automatic resending when meeting creation has an uncertain outcome.
 
-[Unreleased]: https://github.com/dmitrbrvsk/win-owa-widget/compare/v1.5.0...master
+[Unreleased]: https://github.com/dmitrbrvsk/win-owa-widget/compare/v1.6.0...master
+[1.6.0]: https://github.com/dmitrbrvsk/win-owa-widget/releases/tag/v1.6.0
 [1.5.0]: https://github.com/dmitrbrvsk/win-owa-widget/releases/tag/v1.5.0
 [1.4.4]: https://github.com/dmitrbrvsk/win-owa-widget/releases/tag/v1.4.4
 [1.4.3]: https://github.com/dmitrbrvsk/win-owa-widget/releases/tag/v1.4.3

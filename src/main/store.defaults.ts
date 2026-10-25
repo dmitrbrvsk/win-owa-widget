@@ -1,4 +1,5 @@
 // Defaults live apart from store.ts so tests can use them without loading Electron.
+import { DEFAULT_HOTKEYS } from '../shared/hotkeys';
 import { type AppSettings } from '../shared/types';
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -21,4 +22,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
     popupSize: 'regular',
     welcomeDone: false,
     privacyMode: false,
+    hotkeys: { ...DEFAULT_HOTKEYS },
+    showFreeTime: true,
 };

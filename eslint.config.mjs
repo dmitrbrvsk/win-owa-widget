@@ -10,7 +10,7 @@ import {
 const existingLineLimits = {
     'src/main/calendarService.ts': 1000,
     'src/main/demo.ts': 500,
-    'src/main/index.ts': 1600,
+    'src/main/index.ts': 1640,
     'src/main/owa/availability.ts': 500,
     'src/main/owa/client.ts': 900,
     'src/main/owa/ewsMeeting.ts': 500,

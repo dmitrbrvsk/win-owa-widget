@@ -1746,3 +1746,30 @@ Start with these areas:
 - With details open, enable Privacy mode from the tray. Titles, attendees, links, and notes are
   hidden in every window. Disable it: the ordinary calendar returns.
 - Check Light and Dark themes and a 900 × 600 window at 100% and 150% Windows scaling.
+
+## Keyboard shortcuts, free windows and frequent people (1.6.0)
+
+- Right after updating, Settings → “Keyboard shortcuts” shows Ctrl+Alt+J, Ctrl+Alt+W and
+  Ctrl+Alt+N. From another program (a browser, File Explorer) press Ctrl+Alt+W: the widget opens,
+  and pressing it again hides it. Ctrl+Alt+N opens “Create meeting”.
+- Ctrl+Alt+J during a meeting with a link (or 10 minutes before it) opens the call; with two
+  meetings on and different links, the widget opens; with no meeting, the widget opens too. In
+  Privacy mode no call is opened. The log contains no meeting titles.
+- In the settings click the “New meeting” field and press Ctrl+Shift+K: the field shows the
+  combination and no create window opens. Ctrl+J (one modifier) and a combination already used by
+  another action are refused with an explanation. Click “Save”: the new combination works at once
+  and Ctrl+Alt+N is no longer captured (check in IntelliJ IDEA / WebStorm, where it is Inline).
+  Close the settings while the field still has the focus: the combinations work again.
+- Have another program hold Ctrl+Alt+W (for example a desktop shortcut with that key) and restart
+  the widget: the settings show “Taken by another program” next to it, and the tray menu shows no
+  hint for it.
+- Timeline: free gaps of 30 minutes or more within working hours are outlined, with a “Free
+  HH:MM–HH:MM” line above. An unanswered invitation counts as busy; declined and cancelled
+  meetings do not. Clicking a window opens a new meeting at that time (at most an hour). A day
+  with 3 hours of meetings and no break shows a warning. Turning off “Free windows and
+  back-to-back meetings” removes all of this, including in the large calendar window.
+- Create a meeting with an attendee picked from the address book suggestions and a location.
+  Open the create form again: a button with their name appears under the attendees, and a button
+  with the place under the location; a click adds it. Under another account this person is not
+  suggested. In Privacy mode there are no buttons. “Forget frequent people” in Diagnostics clears
+  what was remembered (organizers from the calendar are still suggested).

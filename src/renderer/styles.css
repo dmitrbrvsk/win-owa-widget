@@ -2920,3 +2920,122 @@ textarea.field {
     outline: 2px solid var(--accent);
     outline-offset: -2px;
 }
+
+/* ---------- Free windows on the day view ---------- */
+.dayfree {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin: 0 12px 4px;
+}
+
+.dayfree-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 26px;
+    padding: 0 4px 0 8px;
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--fg2);
+    background: var(--surface-2);
+}
+
+.dayfree-row.warn {
+    color: var(--warn);
+    background: color-mix(in srgb, var(--warn) 10%, transparent);
+}
+
+.dayfree-row .icon-btn {
+    width: 24px;
+    height: 24px;
+}
+
+.free-blk {
+    position: absolute;
+    right: 4px;
+    left: 58px;
+    display: flex;
+    align-items: flex-start;
+    overflow: hidden;
+    padding: 2px 8px;
+    border: 1px dashed color-mix(in srgb, var(--ok) 55%, transparent);
+    border-radius: 5px;
+    font-size: 11px;
+    text-align: left;
+    color: var(--ok);
+    background: color-mix(in srgb, var(--ok) 6%, transparent);
+}
+
+.free-blk:hover,
+.free-blk:focus-visible {
+    background: color-mix(in srgb, var(--ok) 13%, transparent);
+}
+
+/* ---------- Keyboard shortcuts (settings) ---------- */
+.hotkey-col {
+    flex: none;
+    gap: 4px;
+    align-items: flex-end;
+}
+
+.hotkey-row {
+    gap: 6px;
+    align-items: center;
+}
+
+.field.hotkey {
+    flex: none;
+    width: 190px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+}
+
+.field.hotkey.rec {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+    color: var(--accent);
+}
+
+.link-btn {
+    margin-top: 2px;
+    padding: 0;
+    border: 0;
+    font-size: 12px;
+    color: var(--accent);
+    background: none;
+    cursor: pointer;
+}
+
+.link-btn:hover {
+    text-decoration: underline;
+}
+
+/* ---------- Frequent people and places (create meeting) ---------- */
+.quick-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-width: 0;
+}
+
+.quick-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 220px;
+    height: 24px;
+    padding: 0 9px 0 7px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    font-size: 12px;
+    color: var(--fg2);
+    background: var(--surface);
+}
+
+.quick-chip:hover,
+.quick-chip:focus-visible {
+    color: var(--fg);
+    background: var(--hover);
+}

@@ -130,6 +130,7 @@ export function demoEvents(): CalendarEvent[] {
             joinUrl: zoom,
             platform: 'zoom',
         }),
+        ev(1, '12:30', '14:00', 'Воркшоп: целевая архитектура', { organizer: 'Дмитрий Орлов' }),
         ev(2, '15:00', '15:45', 'Обзор метрик воронки', {
             organizer: 'Екатерина Белова',
             joinUrl: zoom,

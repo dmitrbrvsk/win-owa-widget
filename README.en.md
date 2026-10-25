@@ -44,6 +44,8 @@ The next meeting stays at the top, with the daily timeline below it. Overlapping
 
 The tray icon shows minutes until a meeting starts or ends. A reminder appears before the start as a Windows notification with buttons or a separate app window.
 
+Free windows of 30 minutes or more are outlined right on the timeline, with the next free window above it and a warning when meetings run for 3 hours or more with no break. Keyboard shortcuts work from any program: **Ctrl+Alt+J** joins the current meeting, **Ctrl+Alt+W** opens the widget, **Ctrl+Alt+N** starts a new meeting; change them in the settings.
+
 <details>
 <summary><strong>Open a larger calendar window</strong></summary>
 
@@ -70,6 +72,8 @@ Comments and proposed times are sent to the organizer after a native confirmatio
 ### 03 / Find a time for your team
 
 Add colleagues from the Exchange address book or select a saved group such as **My team**. Set the duration and view everyone's free/busy grid. The widget suggests suitable slots; selecting one carries the time and participants into a new meeting form.
+
+In the new meeting form, the people and rooms you meet with most are one click away. That list is built and kept only on your computer, separately for each account.
 
 <p align="center">
   <img src="docs/media/find-a-time.gif" width="1100" alt="Demo: selecting the saved My team group and finding a shared 45-minute slot for three participants">

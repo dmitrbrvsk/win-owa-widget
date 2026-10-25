@@ -23,6 +23,7 @@ import { type CalendarEvent, type Snapshot } from '../shared/types';
 import { AllDayMeetings } from './AllDayMeetings';
 import { api } from './api';
 import { Detail } from './Detail';
+import { DayFree, useFreeTime } from './FreeTime';
 import { eventColor, ipcMessage, joinHost, useI18n, useNow } from './hooks';
 import { Icon } from './icons';
 import { meetingMenuProps } from './meetingMenu';
@@ -138,6 +139,11 @@ export function Popup({ snap }: { snap: Snapshot }) {
     const allDay = dayEvents.filter((e) => e.isAllDay);
     const invites = useMemo(() => pendingInvitations(snap.events, now), [snap.events, now]);
     const isToday = sameDay(day, today);
+    const workday = {
+        startHour: snap.settings.workdayStartHour,
+        endHour: snap.settings.workdayEndHour,
+    };
+    const freeTime = useFreeTime(snap.settings.showFreeTime, snap.events, day, workday, now);
 
     const live = activeMeetings(snap.events, now);
     const next = nextMeetingGroup(snap.events, now);
@@ -352,19 +358,24 @@ export function Popup({ snap }: { snap: Snapshot }) {
                             t={t}
                             onOpen={setOpen}
                         />
+                        <DayFree
+                            {...freeTime}
+                            isToday={isToday}
+                            workdayOver={now.getHours() >= workday.endHour}
+                            t={t}
+                            lang={lang}
+                        />
                         <Timeline
                             events={dayEvents}
                             day={day}
                             now={now}
-                            workday={{
-                                startHour: snap.settings.workdayStartHour,
-                                endHour: snap.settings.workdayEndHour,
-                            }}
+                            workday={workday}
                             t={t}
                             lang={lang}
                             onOpen={setOpen}
                             onJoin={join}
                             noteIds={snap.noteIds}
+                            free={freeTime.free}
                         />
                     </React.Fragment>
                 )}

@@ -1,4 +1,6 @@
 import { type AccountRecoveryApi } from './accountOwner';
+import { type FrequentApi } from './frequent';
+import { type HotkeyApi, type Hotkeys } from './hotkeys';
 import { type McpApi } from './mcp';
 import { type Snapshot, type SnapshotMessage } from './snapshotTypes';
 
@@ -133,6 +135,10 @@ export interface AppSettings {
     /** The short tour has been seen (or skipped): it opens by itself only once. */
     welcomeDone: boolean;
     privacyMode: boolean;
+    /** System-wide key combinations ('' = off): join the current meeting, open the widget, new meeting. */
+    hotkeys: Hotkeys;
+    /** Free windows and long runs of meetings on the day view. */
+    showFreeTime: boolean;
 }
 
 export interface SettingsUpdate {
@@ -346,7 +352,7 @@ export interface CalendarSelection {
     eventId?: string;
 }
 
-export interface OwaApi extends McpApi, AccountRecoveryApi {
+export interface OwaApi extends McpApi, AccountRecoveryApi, HotkeyApi, FrequentApi {
     setPrivacyMode(enabled: boolean): Promise<void>;
     saveParticipantGroup(account: string, input: ParticipantGroupInput): Promise<ParticipantGroup>;
     deleteParticipantGroup(account: string, id: string): Promise<void>;
@@ -484,4 +490,7 @@ export const IPC = {
     editMeeting: 'owa:editMeeting',
     cancelMeeting: 'owa:cancelMeeting',
     finishWelcome: 'owa:finishWelcome',
+    pauseHotkeys: 'owa:pauseHotkeys',
+    getFrequent: 'owa:getFrequent',
+    forgetFrequent: 'owa:forgetFrequent',
 } as const;

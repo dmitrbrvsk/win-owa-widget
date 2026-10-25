@@ -67,6 +67,9 @@ const api: OwaApi = {
     cancelMeeting: (id) => ipcRenderer.invoke(IPC.cancelMeeting, id),
     openWelcome: () => ipcRenderer.invoke(IPC.openWelcome),
     finishWelcome: (openSettings) => ipcRenderer.invoke(IPC.finishWelcome, openSettings),
+    pauseHotkeys: (paused) => ipcRenderer.invoke(IPC.pauseHotkeys, paused),
+    getFrequent: () => ipcRenderer.invoke(IPC.getFrequent),
+    forgetFrequent: () => ipcRenderer.invoke(IPC.forgetFrequent),
 };
 
 contextBridge.exposeInMainWorld('owa', api);

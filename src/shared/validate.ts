@@ -3,6 +3,7 @@
 // trusts what it receives: values are checked, clamped or dropped here.
 import { MAX_PEOPLE, MAX_RANGE_DAYS } from './availability';
 import { dedupeEmails, emailKey, isEmail, normalizeEmail } from './email';
+import { sanitizeHotkeys } from './hotkeys';
 import { MAX_REPLY_COMMENT } from './limits';
 import { safeUrl } from './meetingUrl';
 import { MAX_STATS_DAYS } from './stats';
@@ -74,6 +75,8 @@ export function sanitizeSettings(raw: unknown, base: AppSettings): AppSettings {
         notifyChanges: bool(r.notifyChanges, base.notifyChanges),
         reminderStyle: oneOf(r.reminderStyle, REMINDER_STYLES, base.reminderStyle),
         privacyMode: bool(r.privacyMode, base.privacyMode),
+        hotkeys: sanitizeHotkeys(r.hotkeys, base.hotkeys),
+        showFreeTime: bool(r.showFreeTime, base.showFreeTime),
         welcomeDone: bool(r.welcomeDone, base.welcomeDone),
         launchAtLogin: bool(r.launchAtLogin, base.launchAtLogin),
         theme: oneOf(r.theme, THEMES, base.theme),

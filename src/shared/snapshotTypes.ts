@@ -1,3 +1,4 @@
+import { type HotkeyAction } from './hotkeys';
 import {
     type AppSettings,
     type CalendarEvent,
@@ -21,6 +22,8 @@ export interface Snapshot {
     hasUnassignedNotes?: boolean;
     accountRecovery?: 'available' | 'retry';
     participantGroups: ParticipantGroupState;
+    /** Combinations Windows refused (another program holds them), so the settings can say so. */
+    hotkeyProblems?: HotkeyAction[];
 }
 
 /** Internal IPC update: unchanged calendars stay in the renderer instead of crossing IPC again. */
