@@ -20,6 +20,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Frequent people are stored locally, per account and encrypted; they are hidden in privacy mode and can be deleted in the settings.
 - The app registers only the combinations from the settings and does not see any other keyboard input. In privacy mode Ctrl+Alt+J opens no call.
+- Electron is updated to 44.9.3, which stops trusting the compromised eMudhra intermediate certificates (GHSA-jr5w-w6x2-84p9). `undici` in the build tooling is updated.
 
 ## [1.5.0] — 2026-10-16
 
