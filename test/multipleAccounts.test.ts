@@ -1,11 +1,12 @@
 import * as fs from 'node:fs';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import nodePath from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
 import {
     accountFolder,
+    emptyAccountSettings,
     loadAccountProfiles,
     readAccountPassword,
 } from '../src/main/accountProfiles';
@@ -114,7 +115,7 @@ it('can retry migration after the registry write failed and retains the matching
     const registry = openRegistry();
     const primary = registry.primaryId!;
     expect(registry.summaries()).toHaveLength(1);
-    expect(readAccountPassword(primary, registry.primary.settings.account)).toBe('legacy-secret');
+    expect(readAccountPassword(registry.profile(primary))).toBe('legacy-secret');
     expect(registry.events[0]).toMatchObject({ accountId: primary, title: event.title });
     expect(openRegistry().primaryId).toBe(primary);
     expect(existsSync(nodePath.join(harness.path, 'secret.bin'))).toBe(false);
@@ -158,7 +159,9 @@ it('isolates credentials, partitions, meeting actions, cache, filters and failed
     expect(registry.target(bid)).toEqual({ calendar: registry.calendar(b), id: baseEvent().id });
     expect(harness.clients.get('A')?.partition).not.toBe(harness.clients.get('B')?.partition);
     expect(harness.clients.get('A')?.password).toBe('test-secret-A');
-    expect(readAccountPassword(a, registry.calendar(b).settings.account)).toBeUndefined();
+    expect(
+        readAccountPassword(registry.profile(a), registry.calendar(b).settings.account),
+    ).toBeUndefined();
     registry.setVisible(a, false);
     expect(registry.events).toHaveLength(2);
     const restarted = openRegistry();
@@ -234,12 +237,140 @@ it('uses the selected server for participants and keeps known own busy slots dur
     expect(lookupB).toHaveBeenCalledWith({ start, end, emails: [] });
     expect(result.self?.digits).toBe('24');
     expect(result.people).toEqual([{ email: request.emails[0], digits: '00' }]);
+    await expect(registry.availability(b, request)).rejects.toThrow('Network unavailable');
+});
+
+it('edits the profile in place without preserving another owner’s credentials or MCP binding', async () => {
+    const registry = openRegistry();
+    const a = registry.add(draft('A'));
+    registry.add(draft('B'));
+    registry.setVisible(a, false);
+    const calendar = registry.calendar(a);
+    const previous = calendar.settings.account;
+    const changed = vi.fn();
+    registry.on('ownerChanged', changed);
+    registry.start();
+    await registry.syncNow('manual');
+    const oldMeeting = registry.events.find((event) => event.accountId === a)!;
+    const update = {
+        settings: { ...calendar.settings, account: { ...previous, username: 'A-corrected' } },
+    };
+    await expect(calendar.testConnection(update)).rejects.toThrow('Сохраните параметры');
+    await expect(
+        calendar.applySettings({
+            settings: { ...calendar.settings, account: { ...previous, username: 'B' } },
+        }),
+    ).rejects.toThrow('уже добавлен');
+    expect(readAccountPassword(registry.profile(a), previous)).toBe('test-secret-A');
+    await expect(calendar.applySettings(update)).resolves.toEqual({ passwordRemoved: true });
+    expect(registry.primaryId).toBe(a);
+    expect(registry.profile(a)).toMatchObject({ label: 'A', visible: false });
+    expect(calendar.settings.account).toMatchObject({
+        username: 'A-corrected',
+        useWindowsAuth: false,
+        hasPassword: false,
+    });
+    expect(readAccountPassword(registry.profile(a), previous)).toBeUndefined();
+    expect(registry.target.bind(registry, oldMeeting.id)).toThrow();
+    expect(changed).toHaveBeenCalledExactlyOnceWith(a, accountOwner(previous));
+    expect(openRegistry().calendar(a).settings.account).toMatchObject({
+        username: 'A-corrected',
+        useWindowsAuth: false,
+    });
+});
+
+it.each(['initial', 'rotated'] as const)(
+    'keeps the %s password and profile if interrupted immediately before the registry commit',
+    async (kind) => {
+        const registry = openRegistry();
+        const id = registry.add(draft('A'));
+        const calendar = registry.calendar(id);
+        const previousPassword = kind === 'initial' ? 'test-secret-A' : 'rotated-password';
+        if (kind === 'rotated') {
+            await calendar.applySettings({
+                settings: calendar.settings,
+                password: previousPassword,
+            });
+            await registry.syncNow('manual');
+        }
+        const profileDir = harness.path;
+        const interrupted = mkdtempSync(nodePath.join(tmpdir(), 'owa-interrupted-save-'));
+        vi.mocked(fs.renameSync).mockImplementation((from, to) => {
+            // Reopen a copy of the disk state before any catch, finally or post-commit cleanup can run.
+            if (String(to).endsWith('accounts.json'))
+                cpSync(profileDir, interrupted, { recursive: true });
+            real.renameSync(from, to);
+        });
+        try {
+            await calendar.applySettings({
+                settings: {
+                    ...calendar.settings,
+                    account: { ...calendar.settings.account, username: 'B' },
+                    theme: 'dark',
+                },
+                password: 'new-password',
+            });
+            await registry.syncNow('manual');
+            const committed = openRegistry();
+            expect(committed.primary.settings).toMatchObject({
+                theme: 'dark',
+                account: { username: 'B' },
+            });
+            expect(readAccountPassword(committed.profile(id))).toBe('new-password');
+
+            harness.path = interrupted;
+            for (let restart = 0; restart < 2; restart++) {
+                const recovered = openRegistry();
+                expect(recovered.primary.settings).toMatchObject({
+                    theme: 'system',
+                    account: { username: 'A', hasPassword: true },
+                });
+                expect(readAccountPassword(recovered.profile(id))).toBe(previousPassword);
+                expect(
+                    readAccountPassword(recovered.profile(id), committed.primary.settings.account),
+                ).toBeUndefined();
+            }
+        } finally {
+            harness.path = profileDir;
+            rmSync(interrupted, { recursive: true, force: true });
+        }
+    },
+);
+
+it('does not apply shared settings or credentials when the registry commit fails', async () => {
+    saveSettings({ ...DEFAULT_SETTINGS, account: emptyAccountSettings(), theme: 'dark' });
+    const registry = openRegistry();
+    const id = registry.add(draft('A'));
+    const other = registry.add(draft('B'));
+    const calendar = registry.calendar(id);
+    const previous = calendar.settings.account;
+    vi.mocked(fs.renameSync).mockImplementation((from, to) => {
+        if (String(to).endsWith('accounts.json')) throw new Error('Disk full');
+        real.renameSync(from, to);
+    });
+    await expect(
+        calendar.applySettings({
+            settings: {
+                ...calendar.settings,
+                account: { ...previous, serverUrl: 'new.example.test' },
+                theme: 'light',
+            },
+            password: 'new-password',
+        }),
+    ).rejects.toThrow('Disk full');
+    expect(calendar.settings).toMatchObject({ account: previous, theme: 'dark' });
+    expect(registry.calendar(other).settings.theme).toBe('dark');
+    const restarted = openRegistry();
+    expect(restarted.primary.settings).toMatchObject({ account: previous, theme: 'dark' });
+    expect(restarted.calendar(other).settings.theme).toBe('dark');
+    expect(readAccountPassword(restarted.profile(id))).toBe('test-secret-A');
 });
 
 it('trusting a certificate changes only the account that presented it', async () => {
     const registry = openRegistry();
     const a = registry.calendar(registry.add(draft('A')));
-    const b = registry.calendar(registry.add(draft('B')));
+    const otherId = registry.add(draft('B'));
+    const b = registry.calendar(otherId);
     const certificate: CertInfo = {
         host: 'mail.example.test',
         fingerprint: `sha256/${'a'.repeat(43)}=`,
@@ -251,24 +382,28 @@ it('trusting a certificate changes only the account that presented it', async ()
     const failure = new OwaError('certificate', 'Certificate rejected');
     failure.cert = certificate;
     harness.load.mockImplementation(async (username) => {
-        if (username === 'A') throw failure;
+        if (username === 'B') throw failure;
         return [baseEvent()];
     });
     registry.start();
     await registry.syncNow('manual');
-    expect(a.pendingCertificate()).toEqual(certificate);
-    expect(b.pendingCertificate()).toBeUndefined();
-    const revision = b.accountRevision;
+    expect(b.pendingCertificate()).toEqual(certificate);
+    expect(a.pendingCertificate()).toBeUndefined();
+    expect(registry.syncState).toMatchObject({
+        accountId: otherId,
+        sync: { untrustedCert: certificate },
+    });
+    const revision = a.accountRevision;
     const approval = (accountRevision: number) => ({
         host: certificate.host,
         fingerprint: certificate.fingerprint,
         accountRevision,
     });
-    await expect(b.trustCertificate(approval(revision))).rejects.toThrow();
+    await expect(a.trustCertificate(approval(revision))).rejects.toThrow();
     harness.load.mockResolvedValue([baseEvent()]);
-    await a.trustCertificate(approval(a.accountRevision));
+    await b.trustCertificate(approval(b.accountRevision));
     await registry.syncNow('manual');
-    expect(b.accountRevision).toBe(revision);
-    expect(b.settings.account.trustedCertFingerprint).toBeUndefined();
-    expect(a.settings.account.trustedCertFingerprint).toBe(certificate.fingerprint);
+    expect(a.accountRevision).toBe(revision);
+    expect(a.settings.account.trustedCertFingerprint).toBeUndefined();
+    expect(b.settings.account.trustedCertFingerprint).toBe(certificate.fingerprint);
 });

@@ -58,11 +58,11 @@ export interface CalendarProfileStorage {
     partition: string;
     settings: AppSettings;
     loadPassword(account: AppSettings['account']): string | undefined;
-    savePassword(password: string | undefined, account: AppSettings['account']): boolean;
     loadCache(owner: string): CalendarEvent[];
     saveCache(events: CalendarEvent[], owner: string): void;
     clearCache(): void;
-    saveSettings(settings: AppSettings): void;
+    saveSettings(settings: AppSettings, password?: string): void;
+    validateConnection?(account: AppSettings['account']): void;
 }
 
 const DAYS_BACK = 7;
@@ -190,8 +190,8 @@ export class CalendarService extends EventEmitter {
             : loadPassword(serverKey(account.serverUrl));
     }
 
-    private persistSettings(settings: AppSettings) {
-        if (this.profile) this.profile.saveSettings(settings);
+    private persistSettings(settings: AppSettings, password?: string) {
+        if (this.profile) this.profile.saveSettings(settings, password);
         else saveSettings(settings);
     }
 
@@ -806,6 +806,23 @@ export class CalendarService extends EventEmitter {
         return next && next !== serverKey(this.settings.account.serverUrl) ? next : null;
     }
 
+    private editedAccount(account: AppSettings['account']): AppSettings['account'] {
+        if (!this.profile?.validateConnection) return { ...this.settings.account };
+        const address = checkServerUrl(account.serverUrl);
+        if (!address.ok) throw new Error(serverUrlError(address));
+        const next = {
+            ...account,
+            serverUrl: address.url.replace(/^https:\/\//, ''),
+            useWindowsAuth: !account.username,
+        };
+        if (participantGroupAccount(next) !== participantGroupAccount(this.settings.account)) {
+            delete next.trustedCertHost;
+            delete next.trustedCertFingerprint;
+            this.profile.validateConnection(next);
+        }
+        return next;
+    }
+
     async applySettings(
         update: SettingsUpdate,
         confirmRetry?: () => Promise<boolean>,
@@ -815,7 +832,7 @@ export class CalendarService extends EventEmitter {
         // Whatever the renderer sent is rebuilt field by field: types, enums and ranges are enforced here.
         // The certificate pin and hasPassword are copied from the current state, never from the page.
         const clean = sanitizeUpdate(update, prev);
-        if (this.profile) clean.settings.account = { ...prev.account };
+        if (this.profile) clean.settings.account = this.editedAccount(clean.settings.account);
         if (clean.settings.account.serverUrl) {
             const check = checkServerUrl(clean.settings.account.serverUrl);
             if (!check.ok) throw new Error(serverUrlError(check));
@@ -830,35 +847,17 @@ export class CalendarService extends EventEmitter {
             ? await this.authorizeAuthenticationRetry(confirmRetry)
             : false;
         this.assertGeneration(generation);
-        const key = serverKey(account.serverUrl);
-        let { hasPassword } = prev.account;
-        let passwordRemoved = false;
-        if (clean.password !== undefined) {
-            if (this.profile && account.useWindowsAuth && clean.password)
-                throw new Error('Этот аккаунт использует вход Windows');
-            hasPassword = this.profile
-                ? this.profile.savePassword(clean.password || undefined, account)
-                : savePassword(clean.password || undefined, key) && !!clean.password;
-        } else if (hasPassword && key !== serverKey(prev.account.serverUrl)) {
-            // The saved password was typed for the previous server; it is never sent to a different one.
-            savePassword(undefined, key);
-            hasPassword = false;
-            passwordRemoved = true;
-            log.info('password removed: it belonged to another server');
-        }
-        const next = {
-            ...clean.settings,
-            account: {
-                ...account,
-                hasPassword,
-                useWindowsAuth: this.profile
-                    ? account.useWindowsAuth
-                    : !account.username || !hasPassword,
-            },
-        };
-        this.persistSettings(next);
+        const previousOwner = participantGroupAccount(prev.account);
+        const ownerChanged = !!this.profile && participantGroupAccount(account) !== previousOwner;
+        const password = clean.password ?? (ownerChanged ? '' : undefined);
+        this.profile?.validateConnection?.(account);
+        const credentials = this.prepareCredentials(account, password, prev.account);
+        const passwordRemoved =
+            credentials.passwordRemoved || (ownerChanged && prev.account.hasPassword && !password);
+        const next = { ...clean.settings, account: credentials.account };
+        this.persistSettings(next, password);
         this.settings = next;
-        if (retryApproved) this.authLatched = false;
+        if (retryApproved || ownerChanged) this.authLatched = false;
 
         const accountChanged =
             clean.password !== undefined ||
@@ -879,7 +878,7 @@ export class CalendarService extends EventEmitter {
             this.sync = { phase: this.settings.account.serverUrl ? 'idle' : 'notConfigured' };
             this.emit('cacheCleared');
             this.rebuildClient();
-            this.emit('accountChanged');
+            this.emit('accountChanged', previousOwner);
             void this.syncNow('manual');
         }
         if (prev.syncIntervalMinutes !== this.settings.syncIntervalMinutes) this.reschedule();
@@ -888,11 +887,49 @@ export class CalendarService extends EventEmitter {
         return { passwordRemoved };
     }
 
+    private prepareCredentials(
+        account: AppSettings['account'],
+        password: string | undefined,
+        previous: AppSettings['account'],
+    ) {
+        const key = serverKey(account.serverUrl);
+        let { hasPassword } = previous;
+        let passwordRemoved = false;
+        if (password !== undefined) {
+            if (this.profile && account.useWindowsAuth && password)
+                throw new Error('Этот аккаунт использует вход Windows');
+            hasPassword = this.profile
+                ? Boolean(password)
+                : savePassword(password || undefined, key) && !!password;
+        } else if (!this.profile && hasPassword && key !== serverKey(previous.serverUrl)) {
+            savePassword(undefined, key);
+            hasPassword = false;
+            passwordRemoved = true;
+        }
+        return {
+            passwordRemoved,
+            account: {
+                ...account,
+                hasPassword,
+                useWindowsAuth: this.profile
+                    ? account.useWindowsAuth
+                    : !account.username || !hasPassword,
+            },
+        };
+    }
+
     async testConnection(
         update: SettingsUpdate,
         progress?: (d: ConnectionDiagnostics) => void,
         confirmRetry?: () => Promise<boolean>,
     ): Promise<ConnectionTestResult> {
+        if (this.profile?.validateConnection) {
+            const draft = this.editedAccount(
+                sanitizeUpdate(update, this.settings).settings.account,
+            );
+            if (participantGroupAccount(draft) !== participantGroupAccount(this.settings.account))
+                throw new Error('Сохраните параметры аккаунта перед проверкой подключения');
+        }
         const release = this.testGate.enter();
         const { generation } = this;
         try {

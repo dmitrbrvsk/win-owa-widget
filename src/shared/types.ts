@@ -382,9 +382,9 @@ export interface OwaApi extends McpApi, AccountRecoveryApi, HotkeyApi, FrequentA
      * travels; the main process finds the meeting itself and writes the clipboard itself.
      */
     meetingMenu(eventId: string): Promise<void>;
-    saveSettings(update: SettingsUpdate): Promise<SaveResult>;
-    testConnection(update: SettingsUpdate): Promise<ConnectionTestResult>;
-    trustCertificate(fingerprint: string): Promise<void>;
+    saveSettings(update: SettingsUpdate, source?: string): Promise<SaveResult>;
+    testConnection(update: SettingsUpdate, source?: string): Promise<ConnectionTestResult>;
+    trustCertificate(fingerprint: string, accountId?: string): Promise<void>;
     forgetCertificate(): Promise<void>;
     /** Forgets the cached meetings and the server session, then loads everything again. Password and settings stay. */
     clearCache(): Promise<void>;

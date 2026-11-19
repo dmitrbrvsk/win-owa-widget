@@ -9,6 +9,7 @@ import {
     accountFolder,
     discardLegacyArtifact,
     MIGRATED_ACCOUNT_ID,
+    removeAccountPasswordFiles,
     type SavedAccount,
 } from './accountProfiles';
 import { removeRecent } from './recentStorage';
@@ -17,7 +18,8 @@ import { saveSettings } from './store';
 export function removeProfileFiles(profile: SavedAccount, settings: AppSettings) {
     const owner = accountOwner(profile.settings);
     const folder = accountFolder(profile.id);
-    for (const name of ['secret.bin', 'secret.bin.tmp', 'cache.bin', 'cache.bin.tmp']) {
+    removeAccountPasswordFiles(profile.id);
+    for (const name of ['cache.bin', 'cache.bin.tmp']) {
         rmSync(nodePath.join(folder, name), { force: true });
     }
     if (profile.id === MIGRATED_ACCOUNT_ID) {

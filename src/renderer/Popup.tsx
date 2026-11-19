@@ -430,7 +430,12 @@ export function Popup({ snap }: { snap: Snapshot }) {
                                     type='button'
                                     className='btn compact'
                                     onClick={() => {
-                                        void api.trustCertificate(sync.untrustedCert!.fingerprint);
+                                        void api
+                                            .trustCertificate(
+                                                sync.untrustedCert!.fingerprint,
+                                                snap.syncAccountId,
+                                            )
+                                            .catch((error) => toast(ipcMessage(error)));
                                     }}
                                 >
                                     {t.trustCert}

@@ -14,6 +14,10 @@ export async function combinedAvailability(
             service.availability(service === selected ? request : { ...request, emails: [] }),
         ),
     );
+    const selectedResponse = responses[services.indexOf(selected)];
+    if (!selectedResponse) throw new Error('Аккаунт не настроен');
+    if (selectedResponse.status === 'rejected') throw selectedResponse.reason;
+    const { people, self } = selectedResponse.value;
     const start = Date.parse(request.start);
     const end = Date.parse(request.end);
     const slots = Math.ceil((end - start) / (SLOT_MINUTES * 60_000));
@@ -32,16 +36,12 @@ export async function combinedAvailability(
             'me',
         ).digits;
     });
-    const result = responses[services.indexOf(selected)];
-    const value = result?.status === 'fulfilled' ? result.value : undefined;
     return {
         start: request.start,
         end: request.end,
         slotMinutes: SLOT_MINUTES,
         self: { email: 'me', digits: mergeOwnBusy(own, slots) },
-        people:
-            value?.people.filter((person) => person.email !== value.self?.email) ??
-            request.emails.map((email) => ({ email, digits: unknown, failed: true })),
+        people: people.filter((person) => person.email !== self?.email),
     };
 }
 

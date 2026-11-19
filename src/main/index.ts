@@ -80,7 +80,14 @@ import { installRendererProtocol, registerRendererScheme } from './rendererProto
 import { afterRendererReady } from './rendererReady';
 import { hardenSession, hardenWebContents, isTrustedSender } from './security';
 import { isFirstRun } from './store';
-import { closeAllToasts, showToast, toastsSupported } from './toasts';
+import {
+    closeAccountToasts,
+    closeAllToasts,
+    closeReminderToast,
+    hasReminderToast,
+    showToast,
+    toastsSupported,
+} from './toasts';
 import { TrayPulse } from './trayPulse';
 import { drawTrayBitmap, TRAY_ICON_SIZE } from './trayRaster';
 import { UpdateChecker } from './updates';
@@ -339,11 +346,12 @@ function visibleEvents(events: CalendarEvent[]): CalendarEvent[] {
 function snapshotState(): SnapshotState {
     refreshOpenableLinks();
     const calendar = calendarFor();
-    const sync = accounts?.sync ?? service.sync;
+    const { sync, accountId } = accounts?.syncState ?? { sync: service.sync };
     return {
         accounts: accounts?.summaries(service.settings.privacyMode),
         primaryAccountId: accounts?.primaryId,
         selectedAccountId: accounts?.primaryId,
+        syncAccountId: accountId,
         sync: service.settings.privacyMode
             ? {
                   phase: sync.phase,
@@ -374,6 +382,7 @@ function snapshotFor<T extends SnapshotState>(message: T, sender?: Electron.WebC
     return {
         ...message,
         selectedAccountId: selected.id,
+        syncAccountId: selected.id,
         settings: calendar.settings,
         sync: calendar.sync,
         accountRecovery: calendar.accountRecovery,
@@ -698,16 +707,21 @@ function showReminderWindow(events: CalendarEvent[]) {
     }
 }
 
+let toastReminderEvents: CalendarEvent[] = [];
+
 function showReminder(events: CalendarEvent[]) {
     if (reminderAsToast()) {
         // The link the button is labelled with, kept as it was when the toast was written. A sticky
         // notification can wait a long time, and the organizer can change the meeting meanwhile: the
         // button must never open a link the person was not shown. If it changed, the window opens instead.
         const advertised = joinUrlForActions(events[0]);
+        toastReminderEvents = events;
         const shown = showToast(
             reminderToast(visibleEvents(events), new Date(), uiLang()),
             {
                 onAction: (id, minutes) => {
+                    if (toastReminderEvents !== events) return;
+                    toastReminderEvents = [];
                     switch (id) {
                         case 'join': {
                             const current = calendarEvents().find((e) => e.id === events[0].id);
@@ -727,15 +741,41 @@ function showReminder(events: CalendarEvent[]) {
                         // No default
                     }
                 },
-                onClick: () => openMeeting(events.length === 1 ? events[0].id : undefined),
+                onClick: () => {
+                    if (toastReminderEvents !== events) return;
+                    toastReminderEvents = [];
+                    openMeeting(events.length === 1 ? events[0].id : undefined);
+                },
                 // Windows refused the notification: the person must not miss the meeting because of it.
-                onFailed: () => showReminderWindow(events),
+                onFailed: () => {
+                    if (toastReminderEvents === events) {
+                        toastReminderEvents = [];
+                        showReminderWindow(events);
+                    }
+                },
             },
             { sticky: true, group: 'reminder' },
         );
         if (shown) return;
+        toastReminderEvents = [];
     }
     showReminderWindow(events);
+}
+
+function dropAccountNotifications(id: string) {
+    closeAccountToasts(id);
+    const windowEvents = pendingReminder?.events;
+    if (windowEvents?.some((event) => event.accountId === id)) {
+        const remaining = windowEvents.filter((event) => event.accountId !== id);
+        if (remaining.length) showReminderWindow(remaining);
+        else reminderWin?.close();
+    }
+    if (!toastReminderEvents.some((event) => event.accountId === id)) return;
+    const remaining = toastReminderEvents.filter((event) => event.accountId !== id);
+    toastReminderEvents = [];
+    if (!hasReminderToast()) return;
+    closeReminderToast();
+    if (remaining.length) showReminder(remaining);
 }
 
 /** Brings the widget forward, on one meeting when it is known. */
@@ -832,8 +872,7 @@ function notifyChanges(changes: EventChange[]) {
                     if (id === 'accept' && eventId) void acceptFromToast(eventId);
                 },
             },
-            // A change is news, not an alarm: it can go quietly to the notification centre after a while.
-            {},
+            { accountId: fresh.find((change) => change.event.id === eventId)?.event.accountId },
         );
     }
 }
@@ -1302,10 +1341,10 @@ function registerIpc() {
         const win = BrowserWindow.fromWebContents(e.sender);
         if (win && (win === popup || win === calendarWin)) openMeetingMenu(win, eventId);
     });
-    handle(IPC.saveSettings, async (e, update) => {
+    handle(IPC.saveSettings, async (e, update, source) => {
         if (accounts) accountSettings(e);
-        const { calendar, check } = calendarContext(e.sender);
-        const next = accounts ? null : calendar.serverChangeOf(update);
+        const { calendar, check } = calendarContext(e.sender, source);
+        const next = calendar.serverChangeOf(update);
         if (
             next &&
             !(await confirmServerChange(next, BrowserWindow.fromWebContents(e.sender) ?? undefined))
@@ -1321,9 +1360,9 @@ function registerIpc() {
             return allowed;
         });
     });
-    handle(IPC.testConnection, async (e, update) => {
+    handle(IPC.testConnection, async (e, update, source) => {
         if (accounts) accountSettings(e);
-        const { calendar, check, checkSelection } = calendarContext(e.sender);
+        const { calendar, check, checkSelection } = calendarContext(e.sender, source);
         const next = accounts ? null : calendar.serverChangeOf(update);
         if (
             next &&
@@ -1338,7 +1377,13 @@ function registerIpc() {
         const result = await calendar.testConnection(
             update as SettingsUpdate,
             (progress) => {
-                if (!e.sender.isDestroyed()) e.sender.send(IPC.connectionProgress, progress);
+                if (e.sender.isDestroyed()) return;
+                try {
+                    check();
+                } catch {
+                    return;
+                }
+                e.sender.send(IPC.connectionProgress, progress);
             },
             async () => {
                 const allowed = await confirmAuthenticationRetry(
@@ -1351,14 +1396,20 @@ function registerIpc() {
         checkSelection();
         return result;
     });
-    handle(IPC.trustCertificate, async (e, fp) => {
+    handle(IPC.trustCertificate, async (e, fp, accountId) => {
         if (!isFingerprint(fp)) throw new Error('Недопустимый отпечаток');
-        const { calendar, check } = calendarContext(e.sender);
-        const approved = await confirmCertificateTrust(calendar, fp, (options) =>
+        const registry = accounts;
+        const target =
+            registry && accountId !== undefined
+                ? registry.calendar(registry.profile(accountId).id)
+                : undefined;
+        const context = target ? undefined : calendarContext(e.sender);
+        const source = target ?? context!.calendar;
+        const approved = await confirmCertificateTrust(source, fp, (options) =>
             askNative(options, BrowserWindow.fromWebContents(e.sender) ?? undefined),
         );
-        check();
-        if (approved) await calendar.trustCertificate(approved);
+        context?.check();
+        if (approved) await source.trustCertificate(approved);
     });
     handle(IPC.forgetCertificate, (e) => calendarFor(e.sender).forgetCertificate());
     handle(IPC.clearCache, (e) => calendarFor(e.sender).clearCache());
@@ -1720,13 +1771,18 @@ void app.whenReady().then(async () => {
                 !calendarEvents().some((event) => event.id === pendingCalendarSelection?.eventId))
         )
             pendingCalendarSelection = null;
-        pendingReminder = null;
-        closeAllToasts();
+        if (id) {
+            dropAccountNotifications(id);
+        } else {
+            pendingReminder = null;
+            toastReminderEvents = [];
+            closeAllToasts();
+        }
         for (const win of [popup, calendarWin, createWin, availabilityWin, statsWin, reminderWin]) {
             if (
                 win &&
                 !win.isDestroyed() &&
-                (!id || windowAccounts.get(win.webContents)?.id === id || win === reminderWin)
+                (!id || windowAccounts.get(win.webContents)?.id === id)
             )
                 win.close();
         }
@@ -1734,12 +1790,15 @@ void app.whenReady().then(async () => {
         linkedEvents = undefined;
         if (!id) reminders?.reset();
     };
-    lifecycle.on('accountChanged', forgetOpenMeetings);
+    lifecycle.on('accountChanged', accounts ? forgetOpenMeetings : () => forgetOpenMeetings());
     accounts?.on('removed', forgetOpenMeetings);
     readTaskbarTheme();
     nativeTheme.on('updated', readTaskbarTheme);
     lifecycle.on('settings', (prev: AppSettings, next: AppSettings) => {
-        if (!prev.privacyMode && next.privacyMode) closeAllToasts();
+        if (!prev.privacyMode && next.privacyMode) {
+            toastReminderEvents = [];
+            closeAllToasts();
+        }
         nativeTheme.themeSource = next.theme;
         if (prev.popupSize !== next.popupSize && popup) {
             const { width, height } = popupSize(next.popupSize);

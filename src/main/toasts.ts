@@ -24,19 +24,20 @@ export interface ToastOptions {
     silent?: boolean;
     /** A new toast of the same group replaces the previous one (an old reminder is no use next to a new one). */
     group?: string;
+    accountId?: string;
 }
 
 /**
  * Notifications on screen. A reference has to be kept: a Notification that is collected loses its
  * click handlers, and a button press would silently do nothing.
  */
-const live = new Map<Notification, string | undefined>();
+const live = new Map<Notification, ToastOptions>();
 
 export const toastsSupported = () => Notification.isSupported();
 
-function dismiss(group: string) {
-    for (const [n, g] of live) {
-        if (g !== group) continue;
+function dismiss(match: (options: ToastOptions) => boolean) {
+    for (const [n, options] of live) {
+        if (!match(options)) continue;
         live.delete(n);
         try {
             n.close();
@@ -46,6 +47,11 @@ function dismiss(group: string) {
     }
 }
 
+export const closeAccountToasts = (accountId: string) =>
+    dismiss((options) => options.accountId === accountId);
+export const closeReminderToast = () => dismiss((options) => options.group === 'reminder');
+export const hasReminderToast = () => [...live.values()].some(({ group }) => group === 'reminder');
+
 /** Returns false when nothing could be shown, so the caller can use something else. */
 export function showToast(
     def: ToastDef,
@@ -53,7 +59,7 @@ export function showToast(
     opts: ToastOptions = {},
 ): boolean {
     if (!Notification.isSupported()) return false;
-    if (opts.group) dismiss(opts.group);
+    if (opts.group) dismiss((options) => options.group === opts.group);
     const layout = layoutToast(def);
     let n: Notification;
     try {
@@ -68,7 +74,7 @@ export function showToast(
         log.warn(`toast: not created: ${describeError(e)}`);
         return false;
     }
-    live.set(n, opts.group);
+    live.set(n, opts);
     let acted = false;
     const guard = (what: string, fn: () => void) => {
         try {
@@ -115,12 +121,5 @@ export function showToast(
 
 /** Best effort dismissal of notifications already shown when privacy is enabled. */
 export function closeAllToasts() {
-    for (const n of live.keys()) {
-        live.delete(n);
-        try {
-            n.close();
-        } catch {
-            /* already closed */
-        }
-    }
+    dismiss(() => true);
 }

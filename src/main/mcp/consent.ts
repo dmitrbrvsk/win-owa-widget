@@ -17,9 +17,9 @@ export function mcpConsent(
         type: 'warning',
         title: 'OWA Widget — MCP',
         message: english
-            ? `Allow local MCP clients to read ${label || 'your calendar'}?`
-            : `Разрешить локальным MCP-клиентам читать календарь${label ? ` «${label}»` : ''}?`,
-        detail: `${scope}\n\n${
+            ? 'Allow local MCP clients to read this calendar?'
+            : 'Разрешить локальным MCP-клиентам читать этот календарь?',
+        detail: `${[label, scope].filter(Boolean).join('\n\n')}\n\n${
             english
                 ? 'Only meetings already loaded by the widget are available. No writing, attendees, bodies, notes or credentials. Privacy mode hides titles.\n\nA connected AI client may send this data to its provider. Check your company policy and connect only trusted clients. Turn MCP off in Settings to revoke access.'
                 : 'Доступны только уже загруженные виджетом встречи. Без записи, участников, текстов, заметок и учетных данных. Режим приватности скрывает названия.\n\nПодключенный ИИ-клиент может передать эти данные своему провайдеру. Проверьте правила компании и подключайте только доверенные клиенты. Чтобы отозвать доступ, выключите MCP в настройках.'

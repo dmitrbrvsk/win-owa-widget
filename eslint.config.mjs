@@ -8,9 +8,11 @@ import {
 // Existing protocol parsers and screen components remain cohesive during the style migration.
 // These explicit ceilings keep their current size/branching visible without weakening new modules.
 const existingLineLimits = {
-    'src/main/calendarService.ts': 1080,
+    'src/main/accountProfiles.ts': 355,
+    'src/main/calendarAccounts.ts': 350,
+    'src/main/calendarService.ts': 1125,
     'src/main/demo.ts': 500,
-    'src/main/index.ts': 1900,
+    'src/main/index.ts': 1960,
     'src/main/owa/availability.ts': 500,
     'src/main/owa/client.ts': 900,
     'src/main/owa/ewsMeeting.ts': 500,
@@ -36,6 +38,7 @@ const existingLineLimits = {
     'test/create.test.ts': 1600,
     'test/editMeeting.test.ts': 500,
     'test/ews.test.ts': 500,
+    'test/multipleAccounts.test.ts': 410,
     'test/security.test.ts': 600,
     'test/stats.test.ts': 600,
 };

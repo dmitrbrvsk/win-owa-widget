@@ -1,20 +1,14 @@
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useState } from 'react';
 
-import { checkServerUrl } from '../shared/serverUrl';
-import {
-    type AppSettings,
-    type CertInfo,
-    type ConnectionDiagnostics as Progress,
-    type ConnectionTestResult,
-    type Snapshot,
-} from '../shared/types';
+import { checkServerUrl, serverKey } from '../shared/serverUrl';
+import { type AppSettings, type Snapshot } from '../shared/types';
 
 import { AccountManagement } from './AccountManagement';
 import { AccountRecovery } from './AccountRecovery';
 import { api } from './api';
-import { ConnectionDiagnostics } from './ConnectionDiagnostics';
 import { ipcMessage, useI18n } from './hooks';
 import { McpPanel } from './McpPanel';
+import { SettingsConnectionTest, SettingsSupportReport } from './SettingsDiagnostics';
 import { ForgetFrequentRow, FreeTimeRow, HotkeySettings } from './ShortcutSettings';
 import { UpdateCheck } from './UpdateCheck';
 
@@ -40,12 +34,10 @@ function Switch({
 }
 
 export function Settings({ snap }: { snap: Snapshot }) {
-    const { t } = useI18n(snap);
+    const { t, lang } = useI18n(snap);
     const [s, setS] = useState<AppSettings>(snap.settings);
     const [password, setPassword] = useState('');
     const [clearPassword, setClearPassword] = useState(false);
-    const [test, setTest] = useState<ConnectionTestResult | null>(null);
-    const [testing, setTesting] = useState(false);
     const [saved, setSaved] = useState(false);
     const [serverSaved, setServerSaved] = useState(false);
     const [saveError, setSaveError] = useState<string | null>(null);
@@ -53,49 +45,23 @@ export function Settings({ snap }: { snap: Snapshot }) {
     const [cacheMsg, setCacheMsg] = useState<{ ok: boolean; text: string } | null>(null);
     const [notesMsg, setNotesMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
-    const [progress, setProgress] = useState<Progress | null>(null);
-    const [report, setReport] = useState('');
-    const [reportMessage, setReportMessage] = useState('');
-    useEffect(() => api.onConnectionProgress(setProgress), []);
-    async function copyReport() {
-        setReportMessage('');
-        try {
-            const text = JSON.stringify(await api.getSupportReport(), null, 2);
-            setReport(text);
-            await api.copyText(text);
-            setReportMessage(t.supportCopied);
-        } catch (e) {
-            setReportMessage(ipcMessage(e));
-        }
-    }
-    const acc = snap.accounts ? snap.settings.account : s.account;
+    const diagnosticsOwner = snap.participantGroups.account;
+    const acc = s.account;
     // The pin lives in the main process; show the live value, not the form's copy.
     const pinned = snap.settings.account;
     const setAcc = (patch: Partial<AppSettings['account']>) =>
         setS({ ...s, account: { ...acc, ...patch } });
     const update = () => ({ settings: s, password: clearPassword ? '' : password || undefined });
     const server = checkServerUrl(acc.serverUrl);
-    const serverChanged = acc.serverUrl.trim() !== snap.settings.account.serverUrl;
-
-    async function runTest() {
-        setTesting(true);
-        setTest(null);
-        setProgress(null);
-        try {
-            const result = await api.testConnection(update());
-            setTest(result);
-            setProgress(result.diagnostics ?? null);
-        } catch (e) {
-            setTest({ ok: false, message: ipcMessage(e) });
-        } finally {
-            setTesting(false);
-        }
-    }
-
-    async function trust(cert: CertInfo) {
-        await api.trustCertificate(cert.fingerprint);
-        setTest(null);
-    }
+    const serverChanged = serverKey(acc.serverUrl) !== serverKey(pinned.serverUrl);
+    const editingConnection =
+        !!snap.accounts &&
+        (serverChanged ||
+            acc.username.trim().toLowerCase() !== pinned.username.trim().toLowerCase());
+    const storedPassword =
+        (snap.accounts ? pinned.hasPassword : acc.hasPassword) &&
+        !editingConnection &&
+        !clearPassword;
 
     async function deleteNotes() {
         setNotesMsg(null);
@@ -123,7 +89,7 @@ export function Settings({ snap }: { snap: Snapshot }) {
         setSaveError(null);
         setPasswordDropped(false);
         try {
-            const result = await api.saveSettings(update());
+            const result = await api.saveSettings(update(), snap.selectedAccountId);
             setPasswordDropped(result.passwordRemoved);
         } catch (e) {
             setSaveError(ipcMessage(e));
@@ -214,6 +180,18 @@ export function Settings({ snap }: { snap: Snapshot }) {
                 <Fragment>
                     <h2>{t.account}</h2>
                     <div className='card'>
+                        {snap.accounts && saveError && (
+                            <div className='setting-row msg bad' role='alert'>
+                                {saveError}
+                            </div>
+                        )}
+                        {snap.accounts && passwordDropped && (
+                            <div className='setting-row msg bad' role='status'>
+                                {lang === 'en'
+                                    ? 'Enter the password for the updated account.'
+                                    : 'Введите пароль для изменённого аккаунта.'}
+                            </div>
+                        )}
                         <div className='setting-row'>
                             <div className='label'>
                                 <div>{t.username}</div>
@@ -225,21 +203,29 @@ export function Settings({ snap }: { snap: Snapshot }) {
                                 value={acc.username}
                                 spellCheck={false}
                                 autoComplete='username'
-                                readOnly={!!snap.accounts}
-                                onChange={(e) => setAcc({ username: e.target.value })}
+                                onChange={(e) => {
+                                    setAcc({ username: e.target.value });
+                                    if (snap.accounts && !e.target.value.trim()) setPassword('');
+                                }}
                             />
                         </div>
                         {snap.accounts && (
                             <div className='setting-row'>
                                 <div className='label'>{t.serverUrl}</div>
-                                <span>{acc.serverUrl}</span>
+                                <input
+                                    className={`field${server.ok ? '' : ' bad'}`}
+                                    aria-label={t.serverUrl}
+                                    value={acc.serverUrl}
+                                    spellCheck={false}
+                                    onChange={(event) => setAcc({ serverUrl: event.target.value })}
+                                />
                             </div>
                         )}
-                        {(!snap.accounts || !acc.useWindowsAuth) && (
+                        {(!snap.accounts || !!acc.username.trim()) && (
                             <div className='setting-row'>
                                 <div className='label'>
                                     <div>{t.password}</div>
-                                    {acc.hasPassword && !clearPassword && (
+                                    {storedPassword && (
                                         <div className='hint'>{t.passwordStored}</div>
                                     )}
                                 </div>
@@ -249,15 +235,13 @@ export function Settings({ snap }: { snap: Snapshot }) {
                                         type='password'
                                         value={password}
                                         autoComplete='current-password'
-                                        placeholder={
-                                            acc.hasPassword && !clearPassword ? '••••••••' : ''
-                                        }
+                                        placeholder={storedPassword ? '••••••••' : ''}
                                         onChange={(e) => {
                                             setPassword(e.target.value);
                                             setClearPassword(false);
                                         }}
                                     />
-                                    {acc.hasPassword && !clearPassword && (
+                                    {storedPassword && (
                                         <button
                                             type='button'
                                             className='btn compact'
@@ -296,60 +280,21 @@ export function Settings({ snap }: { snap: Snapshot }) {
                                 </button>
                             </div>
                         )}
-                        <div className='setting-row'>
-                            <div className='label'>
-                                {test && (
-                                    <div className={`msg ${test.ok ? 'ok' : 'bad'}`} role='status'>
-                                        {test.message}
-                                    </div>
-                                )}
-                                {!test && <div className='hint'>{t.privacyNote}</div>}
-                            </div>
-                            <button
-                                type='button'
-                                className='btn'
-                                disabled={testing || !server.ok}
-                                onClick={() => {
-                                    void runTest();
-                                }}
-                            >
-                                {testing ? t.testing : t.testConnection}
-                            </button>
-                        </div>
-                        {progress && <ConnectionDiagnostics progress={progress} t={t} />}
-                        {test?.untrustedCert && (
-                            <div className='setting-row'>
-                                <div className='label'>
-                                    <div className='hint'>
-                                        {t.certIssuer}: {test.untrustedCert.issuer}
-                                        <br />
-                                        {t.certFor}: {test.untrustedCert.subject}
-                                        <br />
-                                        {t.certValidTo}:{' '}
-                                        {new Date(test.untrustedCert.validTo).toLocaleDateString()}
-                                        <br />
-                                        <span
-                                            className='nowrap'
-                                            title={test.untrustedCert.fingerprint}
-                                        >
-                                            {test.untrustedCert.fingerprint}
-                                        </span>
-                                    </div>
-                                    <div className='hint' style={{ marginTop: 6 }}>
-                                        {t.certHint}
-                                    </div>
-                                </div>
-                                <button
-                                    type='button'
-                                    className='btn'
-                                    onClick={() => {
-                                        void trust(test.untrustedCert!);
-                                    }}
-                                >
-                                    {t.trustCert}
-                                </button>
-                            </div>
-                        )}
+                        <SettingsConnectionTest
+                            key={diagnosticsOwner}
+                            t={t}
+                            hint={
+                                editingConnection
+                                    ? lang === 'en'
+                                        ? 'Save the updated account before testing the connection.'
+                                        : 'Сохраните изменённый аккаунт перед проверкой подключения.'
+                                    : t.privacyNote
+                            }
+                            disabled={!server.ok || editingConnection}
+                            testConnection={() =>
+                                api.testConnection(update(), snap.selectedAccountId)
+                            }
+                        />
                     </div>
                 </Fragment>
             )}
@@ -556,31 +501,7 @@ export function Settings({ snap }: { snap: Snapshot }) {
             <UpdateCheck version={snap.version} t={t} />
             <h2>{t.diagnostics}</h2>
             <div className='card'>
-                <div className='setting-row'>
-                    <div className='label'>
-                        <div className='hint'>{t.supportHint}</div>
-                        {reportMessage && (
-                            <div role='status' className='hint'>
-                                {reportMessage}
-                            </div>
-                        )}
-                    </div>
-                    <button
-                        type='button'
-                        className='btn compact'
-                        onClick={() => {
-                            void copyReport();
-                        }}
-                    >
-                        {t.supportCopy}
-                    </button>
-                </div>
-                {report && (
-                    <details className='support-preview'>
-                        <summary>{t.supportPreview}</summary>
-                        <pre>{report}</pre>
-                    </details>
-                )}
+                <SettingsSupportReport key={diagnosticsOwner} t={t} />
                 <div className='setting-row'>
                     <div className='label'>
                         <div className='hint'>{t.logHint}</div>

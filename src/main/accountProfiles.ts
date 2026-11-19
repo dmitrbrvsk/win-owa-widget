@@ -10,7 +10,12 @@ import {
 } from '../shared/accounts';
 import { openSecret, sealSecret } from '../shared/secret';
 import { checkServerUrl, serverKey } from '../shared/serverUrl';
-import { type AccountSettings, type CalendarEvent, type SyncState } from '../shared/types';
+import {
+    type AccountSettings,
+    type AppSettings,
+    type CalendarEvent,
+    type SyncState,
+} from '../shared/types';
 import { readStoredPin, sanitizeEvents, sanitizeSettings } from '../shared/validate';
 
 import { decrypt, encrypt, profileDir, readBounded, writeAtomic } from './profileStorage';
@@ -20,6 +25,8 @@ import { DEFAULT_SETTINGS } from './store.defaults';
 export const MIGRATED_ACCOUNT_ID = '00000000-0000-4000-8000-000000000001';
 const MAX_CACHE_BYTES = 16 * 1024 * 1024;
 const MAX_PROFILE_BYTES = 256 * 1024;
+const PASSWORD_FILES = ['secret.bin', 'secret-next.bin'] as const;
+type PasswordFile = (typeof PASSWORD_FILES)[number];
 const EMPTY_ACCOUNT: AccountSettings = {
     serverUrl: '',
     username: '',
@@ -33,6 +40,8 @@ export interface SavedAccount {
     color: string;
     visible: boolean;
     settings: AccountSettings;
+    /** Existing profiles use secret.bin; null explicitly means no saved password. */
+    passwordFile?: PasswordFile | null;
 }
 
 export function profileLabel(profile: SavedAccount): string {
@@ -53,6 +62,7 @@ export interface AccountProfiles {
     version: 1;
     primary?: string;
     legacyPending?: boolean;
+    shared?: AppSettings;
     accounts: SavedAccount[];
     deleting: SavedAccount[];
 }
@@ -73,16 +83,29 @@ function profilesPath() {
     return nodePath.join(profileDir(), 'accounts.json');
 }
 
-function secretPath(id: string) {
-    return nodePath.join(accountFolder(id), 'secret.bin');
+function activePasswordFile(profile: SavedAccount) {
+    return profile.passwordFile === undefined ? PASSWORD_FILES[0] : profile.passwordFile;
 }
 
-export function readAccountPassword(id: string, settings: AccountSettings): string | undefined {
-    if (settings.useWindowsAuth) return undefined;
-    const path = secretPath(id);
-    if (!existsSync(path)) return undefined;
+export function removeAccountPasswordFiles(id: string, keep?: SavedAccount) {
+    const folder = accountFolder(id);
+    for (const file of PASSWORD_FILES) {
+        const path = nodePath.join(folder, file);
+        if (!keep || file !== activePasswordFile(keep)) rmSync(path, { force: true });
+        rmSync(`${path}.tmp`, { force: true });
+    }
+}
+
+export function readAccountPassword(
+    profile: SavedAccount,
+    settings = profile.settings,
+): string | undefined {
+    const file = activePasswordFile(profile);
+    if (!file || settings.useWindowsAuth) return undefined;
     try {
-        const plain = decrypt(readBounded(path, 16 * 1024));
+        const plain = decrypt(
+            readBounded(nodePath.join(accountFolder(profile.id), file), 16 * 1024),
+        );
         const opened = openSecret(plain ?? '', accountOwner(settings));
         return opened.kind === 'ok' ? opened.password : undefined;
     } catch {
@@ -90,17 +113,29 @@ export function readAccountPassword(id: string, settings: AccountSettings): stri
     }
 }
 
-export function writeAccountPassword(id: string, settings: AccountSettings, password?: string) {
-    const path = secretPath(id);
-    if (!password) {
-        rmSync(path, { force: true });
-        return false;
-    }
+export function writeAccountPassword(
+    id: string,
+    settings: AccountSettings,
+    password: string,
+    file: PasswordFile = PASSWORD_FILES[0],
+) {
     const encrypted = encrypt(sealSecret(password, accountOwner(settings)));
     if (!encrypted) throw new Error('Шифрование Windows недоступно: пароль не сохранён');
     mkdirSync(accountFolder(id), { recursive: true });
-    writeAtomic(path, encrypted);
+    writeAtomic(nodePath.join(accountFolder(id), file), encrypted);
     return true;
+}
+
+export function stageAccountPassword(
+    profile: SavedAccount,
+    settings: AccountSettings,
+    password: string,
+) {
+    if (!password) return null;
+    const file =
+        activePasswordFile(profile) === PASSWORD_FILES[0] ? PASSWORD_FILES[1] : PASSWORD_FILES[0];
+    writeAccountPassword(profile.id, settings, password, file);
+    return file;
 }
 
 export function readAccountCache(id: string, owner: string): CalendarEvent[] {
@@ -164,14 +199,24 @@ function parseProfile(input: unknown): SavedAccount {
         account.trustedCertHost = settings.trustedCertHost;
         account.trustedCertFingerprint = settings.trustedCertFingerprint;
     }
-    account.hasPassword = !!readAccountPassword(value.id, account);
-    return {
+    const { passwordFile } = value;
+    if (
+        passwordFile !== undefined &&
+        passwordFile !== null &&
+        passwordFile !== PASSWORD_FILES[0] &&
+        passwordFile !== PASSWORD_FILES[1]
+    )
+        throw new Error('Повреждена ссылка на пароль аккаунта');
+    const profile: SavedAccount = {
         id: value.id,
         label: accountLabel(value.label),
         color: accountColor(value.color),
         visible: value.visible === true,
         settings: account,
+        passwordFile,
     };
+    account.hasPassword = !!readAccountPassword(profile);
+    return profile;
 }
 
 export function loadAccountProfiles(): AccountProfiles {
@@ -192,6 +237,7 @@ export function loadAccountProfiles(): AccountProfiles {
         profiles.primary =
             profiles.accounts.find((p) => p.id === raw.primary)?.id ?? profiles.accounts[0]?.id;
         profiles.legacyPending = raw.legacyPending === true;
+        if (raw.shared !== undefined) profiles.shared = sharedSettings(raw.shared);
         return resumeLegacyMigration(profiles);
     }
     const old = readLegacySettings();
@@ -232,17 +278,26 @@ function readLegacySettings() {
     }
 }
 
-export function loadSharedSettings() {
+function sharedSettings(raw: unknown): AppSettings {
     return {
-        ...sanitizeSettings(readLegacySettings(), DEFAULT_SETTINGS),
+        ...sanitizeSettings(raw, DEFAULT_SETTINGS),
         account: emptyAccountSettings(),
     };
+}
+
+export function loadSharedSettings() {
+    return sharedSettings(readLegacySettings());
 }
 
 function copyLegacyArtifacts(profile: SavedAccount) {
     const { settings, id } = profile;
     const oldSecret = nodePath.join(profileDir(), 'secret.bin');
-    if (!settings.useWindowsAuth && existsSync(oldSecret) && !existsSync(secretPath(id))) {
+    if (
+        !settings.useWindowsAuth &&
+        profile.passwordFile === undefined &&
+        existsSync(oldSecret) &&
+        !existsSync(nodePath.join(accountFolder(id), PASSWORD_FILES[0]))
+    ) {
         const plain = decrypt(readBounded(oldSecret, 16 * 1024));
         if (plain === null) return false;
         const opened = openSecret(plain, serverKey(settings.serverUrl));
@@ -273,7 +328,7 @@ function resumeLegacyMigration(profiles: AccountProfiles) {
         const old = profiles.accounts.find(({ id }) => id === MIGRATED_ACCOUNT_ID);
         try {
             if (old && !copyLegacyArtifacts(old)) return profiles;
-            if (old) old.settings.hasPassword = !!readAccountPassword(old.id, old.settings);
+            if (old) old.settings.hasPassword = !!readAccountPassword(old);
             writeAccountProfiles({ ...profiles, legacyPending: false });
             profiles.legacyPending = false;
         } catch {

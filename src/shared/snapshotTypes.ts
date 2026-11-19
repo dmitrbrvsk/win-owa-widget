@@ -11,6 +11,7 @@ export interface Snapshot {
     accounts?: AccountSummary[];
     primaryAccountId?: string;
     selectedAccountId?: string;
+    syncAccountId?: string;
     events: CalendarEvent[];
     sync: SyncState;
     settings: AppSettings;

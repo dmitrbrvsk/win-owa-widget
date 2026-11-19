@@ -2,6 +2,7 @@ import { app } from 'electron';
 import nodePath from 'node:path';
 
 import { participantGroupAccount } from '../../shared/participantGroups';
+import { oneLine } from '../../shared/text';
 import { type CalendarAccounts } from '../calendarAccounts';
 import { type CalendarService } from '../calendarService';
 
@@ -35,10 +36,17 @@ export async function createAppMcp(
             (() =>
                 accounts.summaries().map(({ id, label }) => {
                     const calendar = accounts.calendar(id);
+                    const { account } = calendar.settings;
                     return {
                         id,
-                        label,
-                        owner: participantGroupAccount(calendar.settings.account),
+                        label: [
+                            oneLine(label, 100),
+                            `Exchange — ${account.serverUrl}`,
+                            account.useWindowsAuth
+                                ? 'Windows SSO'
+                                : `${english() ? 'Login' : 'Логин'} — ${oneLine(account.username, 256)}`,
+                        ].join('\n'),
+                        owner: participantGroupAccount(account),
                         revision: calendar.accountRevision,
                         sync: calendar.sync,
                     };
@@ -46,9 +54,11 @@ export async function createAppMcp(
         confirm: (access, label) => confirm(mcpConsent(access, english(), label)),
     });
     if (accounts) {
-        accounts.on('removed', (id: string, owner: string) => {
+        const revoke = (id: string, owner: string) => {
             void controller.removeSource(id, owner).catch(() => {});
-        });
+        };
+        accounts.on('removed', revoke);
+        accounts.on('ownerChanged', revoke);
     } else {
         service.on('accountChanged', () => controller.revoke());
     }

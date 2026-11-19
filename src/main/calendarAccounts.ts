@@ -14,12 +14,16 @@ import { type AppSettings, type AvailabilityRequest, type SyncState } from '../s
 
 import {
     type AccountProfiles,
+    discardLegacyArtifact,
     emptyAccountSettings,
     loadAccountProfiles,
     loadSharedSettings,
     MIGRATED_ACCOUNT_ID,
     profileSummary,
+    readAccountPassword,
+    removeAccountPasswordFiles,
     type SavedAccount,
+    stageAccountPassword,
     writeAccountPassword,
     writeAccountProfiles,
 } from './accountProfiles';
@@ -29,7 +33,6 @@ import { CalendarEventIndex } from './calendarEventIndex';
 import { calendarProfileStorage } from './calendarProfileStorage';
 import { CalendarService } from './calendarService';
 import { log } from './log';
-import { saveSettings } from './store';
 
 // eslint-disable-next-line unicorn/prefer-event-target -- CalendarService and the application already use named EventEmitter events.
 export class CalendarAccounts extends EventEmitter {
@@ -44,12 +47,15 @@ export class CalendarAccounts extends EventEmitter {
     constructor() {
         super();
         this.profiles = loadAccountProfiles();
-        this.global = loadSharedSettings();
+        this.global = this.profiles.shared ?? loadSharedSettings();
         this.empty = this.createService();
         this.empty.on('changed', () => this.changed());
         this.empty.on('settings', (before, after) => this.emit('settings', before, after));
         this.finishRemovals();
-        for (const profile of this.profiles.accounts) this.attach(profile);
+        for (const profile of this.profiles.accounts) {
+            this.prunePasswords(profile);
+            this.attach(profile);
+        }
         this.eventIndex.update(this.runtimes, this.profiles.accounts);
     }
 
@@ -64,13 +70,12 @@ export class CalendarAccounts extends EventEmitter {
         return this.eventIndex.events;
     }
 
-    get sync(): SyncState {
-        const states = [...this.runtimes.values()].map((service) => service.sync);
-        if (!states.length) return { phase: 'notConfigured' };
-        const error = states.find((state) => state.phase === 'error');
-        if (error) return error;
-        if (states.some((state) => state.phase === 'syncing')) return { phase: 'syncing' };
-        return this.primary.sync;
+    get syncState(): { sync: SyncState; accountId?: string } {
+        const error = [...this.runtimes].find(([, calendar]) => calendar.sync.phase === 'error');
+        if (error) return { sync: error[1].sync, accountId: error[0] };
+        if ([...this.runtimes.values()].some((calendar) => calendar.sync.phase === 'syncing'))
+            return { sync: { phase: 'syncing' } };
+        return { sync: this.primary.sync, accountId: this.primaryId };
     }
 
     summaries(anonymous = false): AccountSummary[] {
@@ -142,7 +147,6 @@ export class CalendarAccounts extends EventEmitter {
         };
         // Write the profile before accepting a secret. A crash here leaves a manual profile that can
         // be completed in Settings, and an unconfigured manual profile never falls back to Windows.
-        saveSettings(this.global);
         this.commit({
             ...this.profiles,
             primary: this.primaryId ?? id,
@@ -236,13 +240,52 @@ export class CalendarAccounts extends EventEmitter {
         this.profiles = profiles;
     }
 
-    private replaceProfile(profile: SavedAccount) {
+    private replaceProfile(profile: SavedAccount, shared = this.profiles.shared) {
         this.commit({
             ...this.profiles,
+            shared,
             accounts: this.profiles.accounts.map((entry) =>
                 entry.id === profile.id ? profile : entry,
             ),
         });
+    }
+
+    private prunePasswords(profile: SavedAccount) {
+        try {
+            removeAccountPasswordFiles(profile.id, profile);
+            if (
+                profile.id === MIGRATED_ACCOUNT_ID &&
+                profile.passwordFile !== undefined &&
+                this.profiles.legacyPending
+            )
+                discardLegacyArtifact('secret.bin');
+        } catch {
+            log.warn('accounts: unused password file cleanup will retry on restart');
+        }
+    }
+
+    private saveProfileSettings(id: string | undefined, next: AppSettings, password?: string) {
+        const shared = { ...next, account: emptyAccountSettings() };
+        const sharedChanged = JSON.stringify(this.global) !== JSON.stringify(shared);
+        const saved = id ? this.profile(id) : undefined;
+        if (
+            saved &&
+            (password !== undefined ||
+                JSON.stringify(saved.settings) !== JSON.stringify(next.account))
+        ) {
+            const profile = { ...saved, settings: next.account };
+            if (password !== undefined)
+                profile.passwordFile = stageAccountPassword(saved, next.account, password);
+            // The registry selects the credential only when the profile and shared settings commit together.
+            this.replaceProfile(profile, shared);
+            if (password !== undefined) this.prunePasswords(profile);
+        } else if (sharedChanged) {
+            this.commit({ ...this.profiles, shared });
+        }
+        if (!sharedChanged) return;
+        this.global = shared;
+        for (const calendar of this.runtimes.values()) calendar.setSharedSettings(shared);
+        if (id) this.empty.setSharedSettings(shared);
     }
 
     private createService(profile?: SavedAccount) {
@@ -250,26 +293,30 @@ export class CalendarAccounts extends EventEmitter {
         const settings = { ...this.global, account: profile?.settings ?? emptyAccountSettings() };
         return new CalendarService(
             false,
-            calendarProfileStorage(
-                settings,
-                id,
-                () => this.profiles.legacyPending === true,
-                (next) => {
-                    if (id) {
-                        const saved = this.profile(id);
-                        if (JSON.stringify(saved.settings) !== JSON.stringify(next.account))
-                            this.replaceProfile({ ...saved, settings: next.account });
-                    }
-                    const shared = { ...next, account: emptyAccountSettings() };
-                    if (JSON.stringify(this.global) === JSON.stringify(shared)) return;
-                    saveSettings(shared);
-                    this.global = shared;
-                    for (const calendar of this.runtimes.values())
-                        calendar.setSharedSettings(shared);
-                    if (id) this.empty.setSharedSettings(shared);
-                },
-            ),
+            calendarProfileStorage(settings, id, () => this.profiles.legacyPending === true, {
+                saveSettings: (next, password) => this.saveProfileSettings(id, next, password),
+                loadPassword: (account) =>
+                    id ? readAccountPassword(this.profile(id), account) : undefined,
+                validateConnection: id
+                    ? (account) => this.validateConnection(id, account)
+                    : undefined,
+            }),
         );
+    }
+
+    private validateConnection(id: string, settings: AppSettings['account']) {
+        const owner = accountOwner(settings);
+        if (owner === accountOwner(this.profile(id).settings)) return;
+        if (this.profiles.legacyPending && id === MIGRATED_ACCOUNT_ID)
+            throw new Error(
+                'Завершите перенос данных при перезапуске виджета перед сменой аккаунта',
+            );
+        if (
+            [...this.profiles.accounts, ...this.profiles.deleting].some(
+                (entry) => entry.id !== id && accountOwner(entry.settings) === owner,
+            )
+        )
+            throw new Error('Этот аккаунт уже добавлен или ещё удаляется');
     }
 
     private attach(profile: SavedAccount) {
@@ -277,8 +324,10 @@ export class CalendarAccounts extends EventEmitter {
         this.runtimes.set(profile.id, service);
         service.on('changed', () => this.changed());
         service.on('settings', (before, after) => this.emit('settings', before, after));
-        service.on('accountChanged', () => {
+        service.on('accountChanged', (previousOwner: string) => {
             this.revision += 1;
+            if (previousOwner !== accountOwner(service.settings.account))
+                this.emit('ownerChanged', profile.id, previousOwner);
             this.emit('accountChanged', profile.id);
         });
         service.on('cacheCleared', () => this.emit('cacheCleared'));
