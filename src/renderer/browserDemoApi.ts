@@ -13,6 +13,7 @@ import {
     type Snapshot,
 } from '../shared/types';
 
+import { mockAccountsApi } from './accountsMock';
 import { mockMcpApi } from './mcpMock';
 import { mockShortcutsApi } from './shortcutsMock';
 
@@ -85,6 +86,7 @@ export function mockApi(): OwaApi {
     };
     window.addEventListener('hashchange', emit);
     return {
+        ...mockAccountsApi,
         ...mockMcpApi(),
         ...mockShortcutsApi(() => snap.events),
         recoverAccountData: async () => {},

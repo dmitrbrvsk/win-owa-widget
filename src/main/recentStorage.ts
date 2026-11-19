@@ -62,5 +62,6 @@ export function saveRecent(book: RecentBook, account: string): boolean {
 export function removeRecent(account: string): void {
     const path = recentPath(account);
     rmSync(path, { force: true });
+    rmSync(`${path}.tmp`, { force: true });
     unreadable.delete(path);
 }

@@ -6,6 +6,7 @@ import { MEETINGS_PER_PAGE } from '../shared/meetingPages';
 import { privateEvent } from '../shared/privacy';
 import { type Snapshot } from '../shared/types';
 
+import { AccountFilters, useCalendarEvents } from './AccountControls';
 import { api } from './api';
 import { ipcMessage, useI18n } from './hooks';
 import { Icon } from './icons';
@@ -18,8 +19,9 @@ export function PrivateCalendar({ snap }: { snap: Snapshot }) {
     const [error, setError] = useState('');
     const start = new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime();
     const end = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1).getTime();
-    const events = snap.events
-        .map((e) => privateEvent(e, lang))
+    const shown = useCalendarEvents(snap);
+    const events = shown
+        .map((e) => ({ ...privateEvent(e, lang), accountColor: e.accountColor }))
         .filter(
             (e) =>
                 sameDay(new Date(e.start), day) ||
@@ -72,6 +74,7 @@ export function PrivateCalendar({ snap }: { snap: Snapshot }) {
                     {error}
                 </p>
             )}
+            <AccountFilters snap={snap} />
             <nav className='privacy-nav' aria-label={t.today}>
                 <button
                     type='button'
@@ -111,6 +114,13 @@ export function PrivateCalendar({ snap }: { snap: Snapshot }) {
                             <span className='tnum'>
                                 {e.isAllDay ? t.allDay : range(e.start, e.end, lang)}
                             </span>
+                            {e.accountColor && (
+                                <span
+                                    className='account-swatch'
+                                    style={{ backgroundColor: e.accountColor }}
+                                    aria-hidden='true'
+                                />
+                            )}
                             <strong>
                                 {isEffectivelyCancelled(e)
                                     ? t.cancelled

@@ -16,23 +16,23 @@ const MAX_PLACE_CHIPS = 4;
 const NONE: FrequentSuggestions = { people: [], places: [] };
 
 /** Asked again whenever the privacy mode is switched off: while it is on, the window holds no names or places. */
-export function useFrequent(privacy: boolean): FrequentSuggestions {
-    const [frequent, setFrequent] = useState<FrequentSuggestions>(NONE);
+export function useFrequent(privacy: boolean, source?: string): FrequentSuggestions {
+    const [frequent, setFrequent] = useState<{ source?: string; value: FrequentSuggestions }>();
     // Dropped as soon as the privacy mode is on, not only hidden.
-    if (privacy && frequent !== NONE) setFrequent(NONE);
+    if (privacy && frequent) setFrequent(undefined);
     useEffect(() => {
         if (privacy) return;
         let alive = true;
         api.getFrequent()
             .then((f) => {
-                if (alive) setFrequent(f);
+                if (alive) setFrequent({ source, value: f });
             })
             .catch(() => {});
         return () => {
             alive = false;
         };
-    }, [privacy]);
-    return privacy ? NONE : frequent;
+    }, [privacy, source]);
+    return privacy || !frequent || frequent.source !== source ? NONE : frequent.value;
 }
 
 export function PeopleChips({

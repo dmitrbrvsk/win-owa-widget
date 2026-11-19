@@ -1,7 +1,11 @@
 import { type McpAccess } from '../../shared/mcp';
 
 /** Native-only consent; no meeting text or renderer-supplied prose enters this dialog. */
-export function mcpConsent(access: McpAccess, english: boolean): Electron.MessageBoxOptions {
+export function mcpConsent(
+    access: McpAccess,
+    english: boolean,
+    label?: string,
+): Electron.MessageBoxOptions {
     const scopes = english
         ? ['Meeting times and status. Titles remain hidden.', 'Meeting times, status and titles.']
         : [
@@ -13,8 +17,8 @@ export function mcpConsent(access: McpAccess, english: boolean): Electron.Messag
         type: 'warning',
         title: 'OWA Widget — MCP',
         message: english
-            ? 'Allow local MCP clients to read your calendar?'
-            : 'Разрешить локальным MCP-клиентам читать календарь?',
+            ? `Allow local MCP clients to read ${label || 'your calendar'}?`
+            : `Разрешить локальным MCP-клиентам читать календарь${label ? ` «${label}»` : ''}?`,
         detail: `${scope}\n\n${
             english
                 ? 'Only meetings already loaded by the widget are available. No writing, attendees, bodies, notes or credentials. Privacy mode hides titles.\n\nA connected AI client may send this data to its provider. Check your company policy and connect only trusted clients. Turn MCP off in Settings to revoke access.'

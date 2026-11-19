@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 
 import { checkServerUrl } from '../shared/serverUrl';
 import {
@@ -9,6 +9,7 @@ import {
     type Snapshot,
 } from '../shared/types';
 
+import { AccountManagement } from './AccountManagement';
 import { AccountRecovery } from './AccountRecovery';
 import { api } from './api';
 import { ConnectionDiagnostics } from './ConnectionDiagnostics';
@@ -67,7 +68,7 @@ export function Settings({ snap }: { snap: Snapshot }) {
             setReportMessage(ipcMessage(e));
         }
     }
-    const acc = s.account;
+    const acc = snap.accounts ? snap.settings.account : s.account;
     // The pin lives in the main process; show the live value, not the form's copy.
     const pinned = snap.settings.account;
     const setAcc = (patch: Partial<AppSettings['account']>) =>
@@ -143,194 +144,215 @@ export function Settings({ snap }: { snap: Snapshot }) {
         <div className='settings'>
             <h1>{t.settingsTitle}</h1>
 
-            <h2>{t.server}</h2>
-            <div className='card'>
-                <div className='setting-row'>
-                    <div className='label'>
-                        <div>{t.serverUrl}</div>
-                        <div className='hint'>{t.serverHint}</div>
-                    </div>
-                    <input
-                        className={`field${acc.serverUrl && !server.ok ? ' bad' : ''}`}
-                        value={acc.serverUrl}
-                        placeholder='mail.company.ru'
-                        spellCheck={false}
-                        // eslint-disable-next-line jsx-a11y/no-autofocus -- The dedicated first-run settings window focuses its only required empty connection field; existing configured accounts keep the normal focus order.
-                        autoFocus={!snap.settings.account.serverUrl}
-                        onChange={(e) => setAcc({ serverUrl: e.target.value })}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter' && server.ok) void save('server');
-                        }}
-                    />
-                </div>
-                <div className='setting-row'>
-                    <div className='label'>
-                        {server.ok ? (
-                            <div className='msg ok' role='status'>
-                                {t.serverWillUse(server.url)}
+            {snap.accounts && <AccountManagement snap={snap} />}
+            {!snap.accounts && (
+                <Fragment>
+                    <h2>{t.server}</h2>
+                    <div className='card'>
+                        <div className='setting-row'>
+                            <div className='label'>
+                                <div>{t.serverUrl}</div>
+                                <div className='hint'>{t.serverHint}</div>
                             </div>
-                        ) : acc.serverUrl ? (
-                            <div className='msg bad' role='alert'>
-                                {t.serverProblem[server.problem]}
+                            <input
+                                className={`field${acc.serverUrl && !server.ok ? ' bad' : ''}`}
+                                value={acc.serverUrl}
+                                placeholder='mail.company.ru'
+                                spellCheck={false}
+                                // eslint-disable-next-line jsx-a11y/no-autofocus -- The dedicated first-run settings window focuses its only required empty connection field; existing configured accounts keep the normal focus order.
+                                autoFocus={!snap.settings.account.serverUrl}
+                                onChange={(e) => setAcc({ serverUrl: e.target.value })}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && server.ok) void save('server');
+                                }}
+                            />
+                        </div>
+                        <div className='setting-row'>
+                            <div className='label'>
+                                {server.ok ? (
+                                    <div className='msg ok' role='status'>
+                                        {t.serverWillUse(server.url)}
+                                    </div>
+                                ) : acc.serverUrl ? (
+                                    <div className='msg bad' role='alert'>
+                                        {t.serverProblem[server.problem]}
+                                    </div>
+                                ) : (
+                                    <div className='hint'>{t.serverProblem.empty}</div>
+                                )}
+                                {serverSaved && (
+                                    <div className='msg ok' role='status'>
+                                        {t.serverSaved}
+                                    </div>
+                                )}
+                                {saveError && (
+                                    <div className='msg bad' role='alert'>
+                                        {saveError}
+                                    </div>
+                                )}
+                                {passwordDropped && (
+                                    <div className='msg bad' role='status'>
+                                        {t.passwordDropped}
+                                    </div>
+                                )}
                             </div>
-                        ) : (
-                            <div className='hint'>{t.serverProblem.empty}</div>
-                        )}
-                        {serverSaved && (
-                            <div className='msg ok' role='status'>
-                                {t.serverSaved}
-                            </div>
-                        )}
-                        {saveError && (
-                            <div className='msg bad' role='alert'>
-                                {saveError}
-                            </div>
-                        )}
-                        {passwordDropped && (
-                            <div className='msg bad' role='status'>
-                                {t.passwordDropped}
-                            </div>
-                        )}
-                    </div>
-                    <button
-                        type='button'
-                        className='btn primary'
-                        disabled={!server.ok || !serverChanged}
-                        onClick={() => {
-                            void save('server');
-                        }}
-                    >
-                        {t.saveServer}
-                    </button>
-                </div>
-            </div>
-
-            <h2>{t.account}</h2>
-            <div className='card'>
-                <div className='setting-row'>
-                    <div className='label'>
-                        <div>{t.username}</div>
-                        <div className='hint'>{t.usernameHint}</div>
-                        <div className='hint'>{t.credentialsHint}</div>
-                    </div>
-                    <input
-                        className='field'
-                        value={acc.username}
-                        spellCheck={false}
-                        autoComplete='username'
-                        onChange={(e) => setAcc({ username: e.target.value })}
-                    />
-                </div>
-                <div className='setting-row'>
-                    <div className='label'>
-                        <div>{t.password}</div>
-                        {acc.hasPassword && !clearPassword && (
-                            <div className='hint'>{t.passwordStored}</div>
-                        )}
-                    </div>
-                    <div className='col' style={{ gap: 4, alignItems: 'flex-end' }}>
-                        <input
-                            className='field'
-                            type='password'
-                            value={password}
-                            autoComplete='current-password'
-                            placeholder={acc.hasPassword && !clearPassword ? '••••••••' : ''}
-                            onChange={(e) => {
-                                setPassword(e.target.value);
-                                setClearPassword(false);
-                            }}
-                        />
-                        {acc.hasPassword && !clearPassword && (
                             <button
                                 type='button'
-                                className='btn compact'
+                                className='btn primary'
+                                disabled={!server.ok || !serverChanged}
                                 onClick={() => {
-                                    setClearPassword(true);
-                                    setPassword('');
+                                    void save('server');
                                 }}
                             >
-                                {t.passwordClear}
+                                {t.saveServer}
                             </button>
-                        )}
+                        </div>
                     </div>
-                </div>
-                {pinned.trustedCertFingerprint && (
-                    <div className='setting-row'>
-                        <div className='label'>
-                            <div>{t.certificate}</div>
-                            <div
-                                className='hint nowrap'
-                                style={{ maxWidth: 360 }}
-                                title={pinned.trustedCertFingerprint}
+                </Fragment>
+            )}
+            {(!snap.accounts || snap.selectedAccountId) && (
+                <Fragment>
+                    <h2>{t.account}</h2>
+                    <div className='card'>
+                        <div className='setting-row'>
+                            <div className='label'>
+                                <div>{t.username}</div>
+                                <div className='hint'>{t.usernameHint}</div>
+                                <div className='hint'>{t.credentialsHint}</div>
+                            </div>
+                            <input
+                                className='field'
+                                value={acc.username}
+                                spellCheck={false}
+                                autoComplete='username'
+                                readOnly={!!snap.accounts}
+                                onChange={(e) => setAcc({ username: e.target.value })}
+                            />
+                        </div>
+                        {snap.accounts && (
+                            <div className='setting-row'>
+                                <div className='label'>{t.serverUrl}</div>
+                                <span>{acc.serverUrl}</span>
+                            </div>
+                        )}
+                        {(!snap.accounts || !acc.useWindowsAuth) && (
+                            <div className='setting-row'>
+                                <div className='label'>
+                                    <div>{t.password}</div>
+                                    {acc.hasPassword && !clearPassword && (
+                                        <div className='hint'>{t.passwordStored}</div>
+                                    )}
+                                </div>
+                                <div className='col' style={{ gap: 4, alignItems: 'flex-end' }}>
+                                    <input
+                                        className='field'
+                                        type='password'
+                                        value={password}
+                                        autoComplete='current-password'
+                                        placeholder={
+                                            acc.hasPassword && !clearPassword ? '••••••••' : ''
+                                        }
+                                        onChange={(e) => {
+                                            setPassword(e.target.value);
+                                            setClearPassword(false);
+                                        }}
+                                    />
+                                    {acc.hasPassword && !clearPassword && (
+                                        <button
+                                            type='button'
+                                            className='btn compact'
+                                            onClick={() => {
+                                                setClearPassword(true);
+                                                setPassword('');
+                                            }}
+                                        >
+                                            {t.passwordClear}
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                        {pinned.trustedCertFingerprint && (
+                            <div className='setting-row'>
+                                <div className='label'>
+                                    <div>{t.certificate}</div>
+                                    <div
+                                        className='hint nowrap'
+                                        style={{ maxWidth: 360 }}
+                                        title={pinned.trustedCertFingerprint}
+                                    >
+                                        {t.trustedCert} ({pinned.trustedCertHost}):{' '}
+                                        {pinned.trustedCertFingerprint}
+                                    </div>
+                                </div>
+                                <button
+                                    type='button'
+                                    className='btn compact'
+                                    onClick={() => {
+                                        void api.forgetCertificate();
+                                    }}
+                                >
+                                    {t.forgetCert}
+                                </button>
+                            </div>
+                        )}
+                        <div className='setting-row'>
+                            <div className='label'>
+                                {test && (
+                                    <div className={`msg ${test.ok ? 'ok' : 'bad'}`} role='status'>
+                                        {test.message}
+                                    </div>
+                                )}
+                                {!test && <div className='hint'>{t.privacyNote}</div>}
+                            </div>
+                            <button
+                                type='button'
+                                className='btn'
+                                disabled={testing || !server.ok}
+                                onClick={() => {
+                                    void runTest();
+                                }}
                             >
-                                {t.trustedCert} ({pinned.trustedCertHost}):{' '}
-                                {pinned.trustedCertFingerprint}
-                            </div>
+                                {testing ? t.testing : t.testConnection}
+                            </button>
                         </div>
-                        <button
-                            type='button'
-                            className='btn compact'
-                            onClick={() => {
-                                void api.forgetCertificate();
-                            }}
-                        >
-                            {t.forgetCert}
-                        </button>
-                    </div>
-                )}
-                <div className='setting-row'>
-                    <div className='label'>
-                        {test && (
-                            <div className={`msg ${test.ok ? 'ok' : 'bad'}`} role='status'>
-                                {test.message}
+                        {progress && <ConnectionDiagnostics progress={progress} t={t} />}
+                        {test?.untrustedCert && (
+                            <div className='setting-row'>
+                                <div className='label'>
+                                    <div className='hint'>
+                                        {t.certIssuer}: {test.untrustedCert.issuer}
+                                        <br />
+                                        {t.certFor}: {test.untrustedCert.subject}
+                                        <br />
+                                        {t.certValidTo}:{' '}
+                                        {new Date(test.untrustedCert.validTo).toLocaleDateString()}
+                                        <br />
+                                        <span
+                                            className='nowrap'
+                                            title={test.untrustedCert.fingerprint}
+                                        >
+                                            {test.untrustedCert.fingerprint}
+                                        </span>
+                                    </div>
+                                    <div className='hint' style={{ marginTop: 6 }}>
+                                        {t.certHint}
+                                    </div>
+                                </div>
+                                <button
+                                    type='button'
+                                    className='btn'
+                                    onClick={() => {
+                                        void trust(test.untrustedCert!);
+                                    }}
+                                >
+                                    {t.trustCert}
+                                </button>
                             </div>
                         )}
-                        {!test && <div className='hint'>{t.privacyNote}</div>}
                     </div>
-                    <button
-                        type='button'
-                        className='btn'
-                        disabled={testing || !server.ok}
-                        onClick={() => {
-                            void runTest();
-                        }}
-                    >
-                        {testing ? t.testing : t.testConnection}
-                    </button>
-                </div>
-                {progress && <ConnectionDiagnostics progress={progress} t={t} />}
-                {test?.untrustedCert && (
-                    <div className='setting-row'>
-                        <div className='label'>
-                            <div className='hint'>
-                                {t.certIssuer}: {test.untrustedCert.issuer}
-                                <br />
-                                {t.certFor}: {test.untrustedCert.subject}
-                                <br />
-                                {t.certValidTo}:{' '}
-                                {new Date(test.untrustedCert.validTo).toLocaleDateString()}
-                                <br />
-                                <span className='nowrap' title={test.untrustedCert.fingerprint}>
-                                    {test.untrustedCert.fingerprint}
-                                </span>
-                            </div>
-                            <div className='hint' style={{ marginTop: 6 }}>
-                                {t.certHint}
-                            </div>
-                        </div>
-                        <button
-                            type='button'
-                            className='btn'
-                            onClick={() => {
-                                void trust(test.untrustedCert!);
-                            }}
-                        >
-                            {t.trustCert}
-                        </button>
-                    </div>
-                )}
-            </div>
-
+                </Fragment>
+            )}
             <h2>{t.privacyTitle}</h2>
             <div className='card'>
                 <div className='setting-row'>
@@ -637,7 +659,12 @@ export function Settings({ snap }: { snap: Snapshot }) {
                 </div>
             </div>
 
-            <McpPanel key={snap.participantGroups.account} snap={snap} />
+            {(!snap.accounts || snap.selectedAccountId) && (
+                <McpPanel
+                    key={snap.selectedAccountId ?? snap.participantGroups.account}
+                    snap={snap}
+                />
+            )}
 
             <div className='settings-foot'>
                 <button

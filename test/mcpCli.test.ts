@@ -74,7 +74,7 @@ it('runs the bundled Node CLI through stdio, permissions, the real bridge and ca
         return new Promise<Record<string, unknown>>((resolve, reject) => {
             const timer = setTimeout(() => {
                 pending.delete(id);
-                reject(new Error('MCP test timeout'));
+                reject(new Error(`MCP test timeout (${method}): ${stderr}`));
             }, 3000);
             pending.set(id, (message) => {
                 clearTimeout(timer);

@@ -28,7 +28,13 @@ const common = {
 };
 
 const configs = [
-    { ...common, entryPoints: ['src/main/index.ts'], outfile: path.join(outdir, 'main/index.js') },
+    {
+        ...common,
+        // Node reads UTF-8. Keep translated strings compact instead of escaping each character.
+        charset: 'utf8',
+        entryPoints: ['src/main/index.ts'],
+        outfile: path.join(outdir, 'main/index.js'),
+    },
     {
         ...common,
         entryPoints: ['src/preload/index.ts'],

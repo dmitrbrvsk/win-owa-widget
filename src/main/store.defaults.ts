@@ -1,11 +1,12 @@
 // Defaults live apart from store.ts so tests can use them without loading Electron.
+import { DEFAULT_SERVER_URL } from '../shared/accounts';
 import { DEFAULT_HOTKEYS } from '../shared/hotkeys';
 import { type AppSettings } from '../shared/types';
 
 export const DEFAULT_SETTINGS: AppSettings = {
     // Prefilled for the team this build is made for; any other server can be typed over it.
     account: {
-        serverUrl: 'owa.alfabank.ru',
+        serverUrl: DEFAULT_SERVER_URL,
         useWindowsAuth: true,
         username: '',
         hasPassword: false,

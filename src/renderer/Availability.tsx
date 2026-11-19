@@ -17,6 +17,7 @@ import { type Dict, type Lang } from '../shared/i18n';
 import { localPeople } from '../shared/meetingForm';
 import { type AvailabilityRequest, type AvailabilityResult, type Snapshot } from '../shared/types';
 
+import { AccountPicker } from './AccountControls';
 import { Alert } from './Alert';
 import { api } from './api';
 import { useAvailabilityGrid, useAvailabilityGridScroll } from './availabilityGrid';
@@ -252,7 +253,16 @@ export function Availability({ snap }: { snap: Snapshot }) {
     /** Typed but not yet a chip; and the names picked from the directory, shown as a chip's tooltip. */
     const [draft, setDraft] = useState('');
     const [pickedNames, setPickedNames] = useState<Record<string, string>>({});
-    const local = useMemo(() => localPeople(snap.events), [snap.events]);
+    const local = useMemo(
+        () =>
+            localPeople(
+                snap.events.filter(
+                    (event) =>
+                        !snap.selectedAccountId || event.accountId === snap.selectedAccountId,
+                ),
+            ),
+        [snap.events, snap.selectedAccountId],
+    );
     const taken = useMemo(() => new Set(emails.map(emailKey)), [emails]);
 
     /** Adds addresses to the list; returns a message when there is no room for them. */
@@ -264,10 +274,18 @@ export function Availability({ snap }: { snap: Snapshot }) {
         return null;
     };
 
-    const request = useMemo<AvailabilityRequest>(() => {
+    const accountsKey = snap.accounts?.map((account) => account.id).join(',');
+    type CalendarRequest = AvailabilityRequest & { source?: string; accountsKey?: string };
+    const request = useMemo<CalendarRequest>(() => {
         const w = weekWindow(week);
-        return { emails, start: w.start.toISOString(), end: w.end.toISOString() };
-    }, [emails, week]);
+        return {
+            emails,
+            start: w.start.toISOString(),
+            end: w.end.toISOString(),
+            source: snap.selectedAccountId,
+            accountsKey,
+        };
+    }, [emails, week, snap.selectedAccountId, accountsKey]);
 
     const requestKey = JSON.stringify(request);
     const latest = useRef(requestKey);
@@ -284,9 +302,10 @@ export function Availability({ snap }: { snap: Snapshot }) {
 
     // One request at a time (the main process allows no more); a newer one waits and replaces older ones in the queue.
     const running = useRef(false);
-    const queued = useRef<AvailabilityRequest | null>(null);
+    const queued = useRef<CalendarRequest | null>(null);
     // eslint-disable-next-line react-hooks/preserve-manual-memoization -- This stable callback drains its ref-backed queue recursively; React Compiler is not used.
-    const run = useCallback(async (req: AvailabilityRequest) => {
+    const run = useCallback(async (req: CalendarRequest) => {
+        if (JSON.stringify(req) !== latest.current) return;
         if (running.current) {
             queued.current = req;
             return;
@@ -294,7 +313,7 @@ export function Availability({ snap }: { snap: Snapshot }) {
         running.current = true;
         setLoading(true);
         try {
-            const r = await api.getAvailability(req);
+            const r = await api.getAvailability(req, req.source);
             if (!queued.current && JSON.stringify(req) === latest.current) {
                 setResponse({ key: JSON.stringify(req), value: r });
                 setError(null);
@@ -383,6 +402,7 @@ export function Availability({ snap }: { snap: Snapshot }) {
         <div className='avail'>
             <header className='av-head'>
                 <h1>{t.availTitle}</h1>
+                <AccountPicker snap={snap} />
                 <p className='sec'>{t.availLead}</p>
             </header>
 
@@ -420,6 +440,8 @@ export function Availability({ snap }: { snap: Snapshot }) {
                 <div className='av-field'>
                     <div className='av-label'>{t.availAttendees}</div>
                     <PeopleField
+                        key={snap.selectedAccountId}
+                        source={snap.selectedAccountId}
                         label={t.availAttendees}
                         t={t}
                         values={emails}

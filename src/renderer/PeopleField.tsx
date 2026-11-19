@@ -29,6 +29,7 @@ function useSuggestions(
     query: string,
     local: readonly PersonSuggestion[],
     exclude: ReadonlySet<string>,
+    source?: string,
 ) {
     const q = query.trim();
     const [remote, setRemote] = useState<PersonSuggestion[]>([]);
@@ -49,7 +50,7 @@ function useSuggestions(
         const id = latest.current;
         const timer = setTimeout(() => {
             void api
-                .resolvePeople(q)
+                .resolvePeople(q, source)
                 .catch(() => [] as PersonSuggestion[])
                 .then((people) => {
                     if (id !== latest.current) return;
@@ -61,7 +62,7 @@ function useSuggestions(
                 });
         }, DEBOUNCE_MS);
         return () => clearTimeout(timer);
-    }, [q]);
+    }, [q, source]);
 
     const lower = q.toLowerCase();
     // While the new answer is on its way the old one stays, narrowed to what still matches.
@@ -96,6 +97,7 @@ const initials = (name: string) =>
         .join('');
 
 interface Props {
+    source?: string;
     label: string;
     t: Dict;
     values: string[];
@@ -117,6 +119,7 @@ interface Props {
 
 /** Recipients as chips: type an address or a name, pick a suggestion, or paste a whole list. */
 export function PeopleField({
+    source,
     label,
     t,
     values,
@@ -137,7 +140,7 @@ export function PeopleField({
     /** The query whose suggestions Escape closed: they come back when the text changes. */
     const [dismissed, setDismissed] = useState('');
     const listId = useId();
-    const { items, searching } = useSuggestions(draft, local, taken);
+    const { items, searching } = useSuggestions(draft, local, taken, source);
     const query = draft.trim();
     // A complete address with nothing to suggest needs no "no matches" note.
     const open =

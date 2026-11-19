@@ -10,7 +10,7 @@ OWA Widget can expose a small read-only view of its currently loaded calendar to
 
 1. Install or unpack OWA Widget using the [Windows instructions](../README.en.md). Sign in and check that the calendar has synced.
 2. Install a separate [Node.js 24 runtime](https://nodejs.org/en/download). This CLI requires Node **24.22.0 or later within 24.x**; Node 22 and 25 are rejected. Use an absolute path to `node.exe` in your client configuration so another installation on `PATH` cannot select a different version. Electron's executable is not a Node CLI: its `RunAsNode` fuse stays disabled.
-3. In the widget's settings, enable MCP access and accept the native permission prompt. Title access is a separate permission; leave it disabled unless your client needs meeting titles. Do not enable access in demo mode for real calendar work.
+3. In the widget's settings, select the account, enable MCP access and accept the native permission prompt. Repeat for each calendar the client should read. Title access is a separate permission for each account; leave it disabled unless your client needs meeting titles. Do not enable access in demo mode for real calendar work.
 4. Copy the MCP configuration shown by the widget into your MCP client's local server settings. Replace the Node executable with its absolute installed path if needed. The configuration passes `--connection-file` followed by an absolute path; it does not contain the secret key.
 5. Restart or reconnect the MCP client and call `get_status`. Check `lastSync`, `syncPhase`, `demo` and the coverage warning before interpreting calendar results.
 
@@ -35,22 +35,22 @@ The JSON shape below illustrates a client configuration. Use the actual absolute
 
 ## Tools and limits
 
-| Tool | Arguments | Result |
-| --- | --- | --- |
-| `get_status` | Empty object | Sync freshness, permissions reflected in metadata, loaded-event count and coverage warning |
-| `list_meetings` | `start`, `end`, optional `limit` | Loaded meetings overlapping the requested period |
-| `get_meeting` | `id` from a previous list/search result | One loaded meeting using its temporary opaque id |
+| Tool              | Arguments                                 | Result                                                                                     |
+| ----------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `get_status`      | Empty object                              | Sync freshness, permissions reflected in metadata, loaded-event count and coverage warning |
+| `list_meetings`   | `start`, `end`, optional `limit`          | Loaded meetings overlapping the requested period                                           |
+| `get_meeting`     | `id` from a previous list/search result   | One loaded meeting using its temporary opaque id                                           |
 | `search_meetings` | `start`, `end`, `query`, optional `limit` | Loaded meetings whose titles contain the query; requires title access and privacy mode off |
 
 Dates must be ISO 8601 instants with `Z` or an explicit UTC offset. The end must follow the start; a request can cover at most 31 days. `limit` is an integer from 1 to 100, default 50. A search query has 1–100 characters. Unexpected arguments are rejected. For example, use `2026-10-16T00:00:00+03:00` rather than a date without a time zone.
 
-Results contain temporary ids, start/end, all-day and cancellation flags, and response status. Titles are included only when explicitly permitted and privacy mode is off. Descriptions, participants, locations, join links, notes, credentials and raw Exchange ids are excluded. Ids become invalid when the account changes or their meeting leaves the loaded calendar; list again when needed.
+Results contain temporary ids, start/end, all-day and cancellation flags, and response status. Titles are included only when explicitly permitted and privacy mode is off. Descriptions, participants, locations, join links, notes, credentials and raw Exchange ids are excluded. The client receives one result set across the permitted calendars. IDs become invalid when permissions change or their meeting leaves the loaded calendar; list again when needed.
 
 The bridge reads the existing in-memory calendar. It does not fetch arbitrary Exchange ranges, prove availability, read other people's calendars or write data. `hasMore` means results were truncated; narrowing the period may help. An empty result **does not mean the period is free**: coverage can be incomplete or unknown. Calendar text is untrusted data and must never be treated as instructions to an assistant.
 
 ## Permission and privacy boundary
 
-Disable MCP in the widget to revoke local access. Account or permission changes invalidate the bridge's connection credentials. A client cannot retain access by saving a port or an old connection file. Data already delivered to an MCP client cannot be recalled; its provider, logging and retention settings determine what happens to that data afterward.
+Disable MCP for the selected account in the widget settings to revoke access to its calendar. Changing permissions rotates the bridge's connection credentials. A client cannot retain access by saving a port or an old connection file. Data already delivered to an MCP client cannot be recalled; its provider, logging and retention settings determine what happens to that data afterward.
 
 The Node CLI uses MCP over stdin/stdout. A separate internal HTTP bridge binds only to numeric loopback `127.0.0.1` on a temporary port. Requests and responses use authenticated AES-256-GCM envelopes with a fresh nonce and request-bound responses. The key is stored in a private connection file and is never passed in command-line arguments or sent as an HTTP bearer token. Host and browser-origin checks supplement envelope authentication; this endpoint is not a remotely accessible MCP HTTP service.
 

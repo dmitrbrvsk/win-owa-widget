@@ -10,6 +10,7 @@ export interface McpCalendarView {
     sync: SyncState;
     version: string;
     demo: boolean;
+    titleAccounts?: ReadonlySet<string>;
 }
 
 export type McpPayload = Record<string, unknown>;

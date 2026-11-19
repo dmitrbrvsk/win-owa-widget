@@ -107,7 +107,7 @@ beforeAll(async () => {
             {
                 name: 'isolated-preload',
                 setup(builder) {
-                    builder.onLoad({ filter: /src\/renderer\/api\.ts$/ }, () => ({
+                    builder.onLoad({ filter: /src[/\\]renderer[/\\]api\.ts$/ }, () => ({
                         contents: `export const api = { meetingMenu(id) {
                             (globalThis.timelineMenus ??= []).push(id);
                             return Promise.resolve();
