@@ -247,6 +247,67 @@ svg.ico {
     flex: 1;
 }
 
+.account-filters,
+.account-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+}
+
+.account-filters {
+    max-height: 86px;
+    overflow-y: auto;
+}
+
+.popup > .account-filters {
+    margin: 0 12px 6px;
+}
+
+.account-filter {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    max-width: 100%;
+    font-size: 12px;
+}
+
+.account-filter > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.account-swatch {
+    width: 9px;
+    height: 9px;
+    flex: 0 0 9px;
+    border-radius: 50%;
+}
+
+.account-picker,
+.account-management,
+.account-fields {
+    display: grid;
+    gap: 10px;
+    justify-items: start;
+}
+
+.account-management {
+    padding: 12px;
+}
+
+.account-fields {
+    width: 100%;
+}
+
+.account-fields > label {
+    display: grid;
+    gap: 4px;
+    width: 100%;
+    max-width: 440px;
+}
+
 .demo-chip {
     font-size: 11px;
     padding: 1px 6px;

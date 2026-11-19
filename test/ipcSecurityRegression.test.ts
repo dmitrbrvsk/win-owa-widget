@@ -15,6 +15,42 @@ const meeting = (location: string): CreateMeetingInput => ({
     recurrence: { kind: 'none' },
 });
 describe('security audit regressions through real main-process IPC', () => {
+    it('reports a successful send even when saving frequent people fails', async () => {
+        const h = ipcHarness(true);
+        h.confirm.mockResolvedValue({ response: 1 });
+        const created = vi.spyOn(h.service, 'createMeeting').mockResolvedValue();
+        vi.spyOn(h.service.local, 'rememberMeeting').mockImplementation(() => {
+            throw new Error('Disk full');
+        });
+        expect(await h.call('createMeeting', meeting(''))).toEqual({
+            status: 'created',
+            invited: 0,
+        });
+        expect(created).toHaveBeenCalledOnce();
+    });
+
+    it('rejects a create confirmation when its account was replaced while the dialog was open', async () => {
+        const h = ipcHarness(true);
+        const created = vi.spyOn(h.service, 'createMeeting').mockResolvedValue();
+        let approve!: (answer: { response: number }) => void;
+        h.confirm.mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    approve = resolve;
+                }),
+        );
+        const pending = h.call('createMeeting', meeting(''));
+        await vi.waitFor(() => expect(h.confirm).toHaveBeenCalledOnce());
+        await h.service.applySettings({
+            settings: {
+                ...h.service.settings,
+                account: { ...h.service.settings.account, username: 'other' },
+            },
+        });
+        approve({ response: 1 });
+        await expect(pending).rejects.toThrow('Аккаунт изменился');
+        expect(created).not.toHaveBeenCalled();
+    });
     it('cannot authorize an exfiltration URL through an unconfirmed personal appointment', async () => {
         const h = ipcHarness(true);
         await h.service.syncNow();

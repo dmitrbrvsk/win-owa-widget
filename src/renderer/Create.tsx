@@ -26,6 +26,7 @@ import {
 } from '../shared/types';
 import { MAX_MEETING_ATTENDEES, MAX_MEETING_BODY, MAX_OCCURRENCES } from '../shared/validate';
 
+import { AccountPicker } from './AccountControls';
 import { Alert } from './Alert';
 import { api } from './api';
 import { PeopleChips, PlaceChips, useFrequent } from './FrequentChips';
@@ -147,10 +148,19 @@ export function Create({ snap }: { snap: Snapshot }) {
     useEffect(() => titleRef.current?.focus(), []);
 
     // People met most come first while typing, and as one-click chips under the field.
-    const frequent = useFrequent(snap.settings.privacyMode);
+    const frequent = useFrequent(snap.settings.privacyMode, snap.selectedAccountId);
     const local = useMemo(
-        () => mergePeople(frequent.people, localPeople(snap.events)),
-        [frequent.people, snap.events],
+        () =>
+            mergePeople(
+                frequent.people,
+                localPeople(
+                    snap.events.filter(
+                        (event) =>
+                            !snap.selectedAccountId || event.accountId === snap.selectedAccountId,
+                    ),
+                ),
+            ),
+        [frequent.people, snap.events, snap.selectedAccountId],
     );
     const taken = useMemo(
         () => new Set([...form.required, ...form.optional].map(emailKey)),
@@ -247,7 +257,7 @@ export function Create({ snap }: { snap: Snapshot }) {
         try {
             const res = form.editId
                 ? await api.editMeeting({ ...built.input, id: form.editId })
-                : await api.createMeeting(built.input);
+                : await api.createMeeting(built.input, snap.selectedAccountId);
             if (res.status === 'cancelled') {
                 setPhase('edit');
                 setNote(t.createCancelledNote);
@@ -265,7 +275,7 @@ export function Create({ snap }: { snap: Snapshot }) {
         } finally {
             sending.current = false;
         }
-    }, [build, form.editId, phase, t, titleMissing]);
+    }, [build, form.editId, phase, snap.selectedAccountId, t, titleMissing]);
 
     // Esc closes (a suggestion list that is open takes the first Esc); Ctrl+Enter sends.
     useEffect(() => {
@@ -328,6 +338,7 @@ export function Create({ snap }: { snap: Snapshot }) {
             >
                 <fieldset disabled={locked} className='create-fields'>
                     <h1>{form.editId ? t.editTitle : t.createMeeting}</h1>
+                    <AccountPicker snap={snap} fixed={!!form.editId || locked} />
 
                     <div className='form-row'>
                         <label htmlFor='cm-title'>{t.fieldTitle}</label>
@@ -494,6 +505,8 @@ export function Create({ snap }: { snap: Snapshot }) {
                     <div className='form-row'>
                         <span className='form-label'>{t.fieldRequiredPeople}</span>
                         <PeopleField
+                            key={snap.selectedAccountId}
+                            source={snap.selectedAccountId}
                             label={t.fieldRequiredPeople}
                             t={t}
                             values={form.required}
@@ -518,6 +531,8 @@ export function Create({ snap }: { snap: Snapshot }) {
                     <div className='form-row'>
                         <span className='form-label'>{t.fieldOptionalPeople}</span>
                         <PeopleField
+                            key={snap.selectedAccountId}
+                            source={snap.selectedAccountId}
                             label={t.fieldOptionalPeople}
                             t={t}
                             values={form.optional}

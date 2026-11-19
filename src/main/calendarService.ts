@@ -44,6 +44,7 @@ import {
     clearEventCache,
     hasUnassignedNotes,
     loadEventCache,
+    loadParticipantGroups,
     loadPassword,
     loadSettings,
     saveEventCache,
@@ -52,6 +53,17 @@ import {
     savePassword,
     saveSettings,
 } from './store';
+
+export interface CalendarProfileStorage {
+    partition: string;
+    settings: AppSettings;
+    loadPassword(account: AppSettings['account']): string | undefined;
+    loadCache(owner: string): CalendarEvent[];
+    saveCache(events: CalendarEvent[], owner: string): void;
+    clearCache(): void;
+    saveSettings(settings: AppSettings, password?: string): void;
+    validateConnection?(account: AppSettings['account']): void;
+}
 
 const DAYS_BACK = 7;
 const DAYS_AHEAD = 30;
@@ -98,6 +110,7 @@ export class CalendarService extends EventEmitter {
     readonly demo: boolean;
 
     private client?: OwaClient;
+    private probe?: OwaClient;
     private generation = 0;
     private timer?: NodeJS.Timeout;
     private inFlight?: Promise<void>;
@@ -129,12 +142,18 @@ export class CalendarService extends EventEmitter {
      */
     private readonly requestGate = new RequestGate(3, 120, 10 * 60_000);
 
-    constructor(demo: boolean) {
+    constructor(
+        demo: boolean,
+        private readonly profile?: CalendarProfileStorage,
+    ) {
         super();
         this.demo = demo;
-        this.settings = loadSettings();
+        this.settings = profile?.settings ?? loadSettings();
         this.local = new AccountData(participantGroupAccount(this.settings.account), demo);
-        if (!demo) this.events = loadEventCache(participantGroupAccount(this.settings.account));
+        if (!demo && this.settings.account.serverUrl) {
+            const owner = participantGroupAccount(this.settings.account);
+            this.events = profile ? profile.loadCache(owner) : loadEventCache(owner);
+        }
         if (!demo && !this.settings.account.serverUrl) this.sync = { phase: 'notConfigured' };
     }
 
@@ -146,6 +165,34 @@ export class CalendarService extends EventEmitter {
         this.rebuildClient();
         void this.syncNow('auto');
         this.reschedule();
+    }
+
+    stop() {
+        clearInterval(this.timer);
+        this.generation += 1;
+        this.client?.dispose();
+        this.probe?.dispose();
+        this.client = undefined;
+        this.probe = undefined;
+        this.inFlight = undefined;
+    }
+
+    setSharedSettings(settings: AppSettings) {
+        const previous = this.settings;
+        this.settings = { ...settings, account: previous.account };
+        if (this.timer && previous.syncIntervalMinutes !== settings.syncIntervalMinutes)
+            this.reschedule();
+    }
+
+    private passwordFor(account: AppSettings['account']): string | undefined {
+        return this.profile
+            ? this.profile.loadPassword(account)
+            : loadPassword(serverKey(account.serverUrl));
+    }
+
+    private persistSettings(settings: AppSettings, password?: string) {
+        if (this.profile) this.profile.saveSettings(settings, password);
+        else saveSettings(settings);
     }
 
     private reschedule() {
@@ -161,13 +208,14 @@ export class CalendarService extends EventEmitter {
         this.inFlight = undefined;
         this.untrusted = undefined;
         this.client?.dispose();
+        this.probe?.dispose();
         this.client = undefined;
         const a = this.settings.account;
         if (this.demo || !a.serverUrl) return;
         try {
             // The selected owner and the real transport must use the same auth mode, even if DPAPI
             // availability changes after settings load. A missing manual secret never enables SSO.
-            const password = a.useWindowsAuth ? undefined : loadPassword(serverKey(a.serverUrl));
+            const password = a.useWindowsAuth ? undefined : this.passwordFor(a);
             if (!a.useWindowsAuth && (!a.username || !password))
                 throw new OwaError(
                     'auth',
@@ -175,7 +223,7 @@ export class CalendarService extends EventEmitter {
                 );
             this.client = new OwaClient({
                 serverUrl: a.serverUrl,
-                partition: 'owa',
+                partition: this.profile?.partition ?? 'owa',
                 useWindowsAuth: a.useWindowsAuth,
                 username: a.useWindowsAuth ? undefined : a.username,
                 password,
@@ -297,7 +345,9 @@ export class CalendarService extends EventEmitter {
             // What moved, was cancelled or newly arrived since the list the widget showed a moment ago.
             const changes = diffEvents(before, this.events, new Date());
             if (changes.length) this.emit('changes', changes);
-            saveEventCache(this.events, participantGroupAccount(this.settings.account));
+            const owner = participantGroupAccount(this.settings.account);
+            if (this.profile) this.profile.saveCache(this.events, owner);
+            else saveEventCache(this.events, owner);
             log.info(`sync: ok, ${events.length} events`);
             this.setSync({ phase: 'ok', lastSuccess: new Date().toISOString() });
         } catch (e) {
@@ -403,7 +453,8 @@ export class CalendarService extends EventEmitter {
 
     participantGroupState(): ParticipantGroupState {
         const account = participantGroupAccount(this.settings.account);
-        return { account, groups: this.local.groups.list(account) };
+        const groups = this.profile ? loadParticipantGroups() : this.local.groups;
+        return { account, groups: groups.list(account) };
     }
     private checkGroupAccount(account: unknown): string {
         const expected = participantGroupAccount(this.settings.account);
@@ -414,7 +465,9 @@ export class CalendarService extends EventEmitter {
     saveParticipantGroup(account: unknown, input: unknown) {
         this.local.assertWritable();
         const key = this.checkGroupAccount(account);
-        const next = ParticipantGroupBook.parse(this.local.groups.toJSON());
+        const next = this.profile
+            ? loadParticipantGroups()
+            : ParticipantGroupBook.parse(this.local.groups.toJSON());
         const saved = next.save(key, input, randomUUID);
         if (!this.demo && !saveParticipantGroups(next))
             throw new Error('Группу нельзя сохранить: недоступно шифрование Windows');
@@ -425,7 +478,9 @@ export class CalendarService extends EventEmitter {
     deleteParticipantGroup(account: unknown, id: unknown) {
         this.local.assertWritable();
         const key = this.checkGroupAccount(account);
-        const next = ParticipantGroupBook.parse(this.local.groups.toJSON());
+        const next = this.profile
+            ? loadParticipantGroups()
+            : ParticipantGroupBook.parse(this.local.groups.toJSON());
         next.remove(key, id);
         if (!this.demo && !saveParticipantGroups(next))
             throw new Error('Группу нельзя удалить: недоступно шифрование Windows');
@@ -436,7 +491,7 @@ export class CalendarService extends EventEmitter {
         if (typeof enabled !== 'boolean') throw new Error('Недопустимый режим приватности');
         const prev = this.settings;
         const next = { ...prev, privacyMode: enabled };
-        if (!this.demo) saveSettings(next);
+        if (!this.demo) this.persistSettings(next);
         this.settings = next;
         this.emit('settings', prev, next);
         this.emit('changed');
@@ -490,7 +545,7 @@ export class CalendarService extends EventEmitter {
     markWelcomeDone() {
         if (this.settings.welcomeDone) return;
         this.settings = { ...this.settings, welcomeDone: true };
-        saveSettings(this.settings);
+        this.persistSettings(this.settings);
         this.emit('changed');
     }
 
@@ -733,7 +788,8 @@ export class CalendarService extends EventEmitter {
         this.rebuildClient();
         log.info('cache: cleared on request');
         this.events = [];
-        clearEventCache();
+        if (this.profile) this.profile.clearCache();
+        else clearEventCache();
         this.emit('cacheCleared');
         this.emit('changed');
         void this.syncNow('manual');
@@ -750,14 +806,33 @@ export class CalendarService extends EventEmitter {
         return next && next !== serverKey(this.settings.account.serverUrl) ? next : null;
     }
 
+    private editedAccount(account: AppSettings['account']): AppSettings['account'] {
+        if (!this.profile?.validateConnection) return { ...this.settings.account };
+        const address = checkServerUrl(account.serverUrl);
+        if (!address.ok) throw new Error(serverUrlError(address));
+        const next = {
+            ...account,
+            serverUrl: address.url.replace(/^https:\/\//, ''),
+            useWindowsAuth: !account.username,
+        };
+        if (participantGroupAccount(next) !== participantGroupAccount(this.settings.account)) {
+            delete next.trustedCertHost;
+            delete next.trustedCertFingerprint;
+            this.profile.validateConnection(next);
+        }
+        return next;
+    }
+
     async applySettings(
         update: SettingsUpdate,
         confirmRetry?: () => Promise<boolean>,
     ): Promise<SaveResult> {
         const prev = this.settings;
+        const { generation } = this;
         // Whatever the renderer sent is rebuilt field by field: types, enums and ranges are enforced here.
         // The certificate pin and hasPassword are copied from the current state, never from the page.
         const clean = sanitizeUpdate(update, prev);
+        if (this.profile) clean.settings.account = this.editedAccount(clean.settings.account);
         if (clean.settings.account.serverUrl) {
             const check = checkServerUrl(clean.settings.account.serverUrl);
             if (!check.ok) throw new Error(serverUrlError(check));
@@ -771,25 +846,18 @@ export class CalendarService extends EventEmitter {
         const retryApproved = credentialsChanged
             ? await this.authorizeAuthenticationRetry(confirmRetry)
             : false;
-        const key = serverKey(account.serverUrl);
-        let { hasPassword } = prev.account;
-        let passwordRemoved = false;
-        if (clean.password !== undefined) {
-            hasPassword = savePassword(clean.password || undefined, key) && !!clean.password;
-        } else if (hasPassword && key !== serverKey(prev.account.serverUrl)) {
-            // The saved password was typed for the previous server; it is never sent to a different one.
-            savePassword(undefined, key);
-            hasPassword = false;
-            passwordRemoved = true;
-            log.info('password removed: it belonged to another server');
-        }
-        const next = {
-            ...clean.settings,
-            account: { ...account, hasPassword, useWindowsAuth: !account.username || !hasPassword },
-        };
-        saveSettings(next);
+        this.assertGeneration(generation);
+        const previousOwner = participantGroupAccount(prev.account);
+        const ownerChanged = !!this.profile && participantGroupAccount(account) !== previousOwner;
+        const password = clean.password ?? (ownerChanged ? '' : undefined);
+        this.profile?.validateConnection?.(account);
+        const credentials = this.prepareCredentials(account, password, prev.account);
+        const passwordRemoved =
+            credentials.passwordRemoved || (ownerChanged && prev.account.hasPassword && !password);
+        const next = { ...clean.settings, account: credentials.account };
+        this.persistSettings(next, password);
         this.settings = next;
-        if (retryApproved) this.authLatched = false;
+        if (retryApproved || ownerChanged) this.authLatched = false;
 
         const accountChanged =
             clean.password !== undefined ||
@@ -800,7 +868,8 @@ export class CalendarService extends EventEmitter {
             this.lastDiagnostics = undefined;
             this.events = [];
             try {
-                clearEventCache();
+                if (this.profile) this.profile.clearCache();
+                else clearEventCache();
             } catch {
                 log.warn(
                     'cache: could not remove the old account cache; owner check still applies',
@@ -809,7 +878,7 @@ export class CalendarService extends EventEmitter {
             this.sync = { phase: this.settings.account.serverUrl ? 'idle' : 'notConfigured' };
             this.emit('cacheCleared');
             this.rebuildClient();
-            this.emit('accountChanged');
+            this.emit('accountChanged', previousOwner);
             void this.syncNow('manual');
         }
         if (prev.syncIntervalMinutes !== this.settings.syncIntervalMinutes) this.reschedule();
@@ -818,14 +887,54 @@ export class CalendarService extends EventEmitter {
         return { passwordRemoved };
     }
 
+    private prepareCredentials(
+        account: AppSettings['account'],
+        password: string | undefined,
+        previous: AppSettings['account'],
+    ) {
+        const key = serverKey(account.serverUrl);
+        let { hasPassword } = previous;
+        let passwordRemoved = false;
+        if (password !== undefined) {
+            if (this.profile && account.useWindowsAuth && password)
+                throw new Error('Этот аккаунт использует вход Windows');
+            hasPassword = this.profile
+                ? Boolean(password)
+                : savePassword(password || undefined, key) && !!password;
+        } else if (!this.profile && hasPassword && key !== serverKey(previous.serverUrl)) {
+            savePassword(undefined, key);
+            hasPassword = false;
+            passwordRemoved = true;
+        }
+        return {
+            passwordRemoved,
+            account: {
+                ...account,
+                hasPassword,
+                useWindowsAuth: this.profile
+                    ? account.useWindowsAuth
+                    : !account.username || !hasPassword,
+            },
+        };
+    }
+
     async testConnection(
         update: SettingsUpdate,
         progress?: (d: ConnectionDiagnostics) => void,
         confirmRetry?: () => Promise<boolean>,
     ): Promise<ConnectionTestResult> {
+        if (this.profile?.validateConnection) {
+            const draft = this.editedAccount(
+                sanitizeUpdate(update, this.settings).settings.account,
+            );
+            if (participantGroupAccount(draft) !== participantGroupAccount(this.settings.account))
+                throw new Error('Сохраните параметры аккаунта перед проверкой подключения');
+        }
         const release = this.testGate.enter();
+        const { generation } = this;
         try {
             const retryApproved = await this.authorizeAuthenticationRetry(confirmRetry);
+            this.assertGeneration(generation);
             return await this.doTestConnection(update, progress, retryApproved);
         } finally {
             release();
@@ -858,7 +967,7 @@ export class CalendarService extends EventEmitter {
             return { ok: true, message: 'Демо-режим: подключение не проверялось', diagnostics };
         }
         const clean = sanitizeUpdate(update, this.settings);
-        const a = clean.settings.account;
+        const a = this.profile ? this.settings.account : clean.settings.account;
         let client: OwaClient | undefined;
         try {
             if (this.authLatched && !retryApproved)
@@ -867,18 +976,19 @@ export class CalendarService extends EventEmitter {
                     'Вход заблокирован после ошибки: подтвердите повторную попытку в настройках',
                 );
             const password =
-                clean.password === undefined
-                    ? loadPassword(serverKey(a.serverUrl))
-                    : clean.password || undefined;
+                clean.password === undefined ? this.passwordFor(a) : clean.password || undefined;
+            const useWindowsAuth = this.profile ? a.useWindowsAuth : !a.username || !password;
+            if (!useWindowsAuth && !password) throw new Error('Введите пароль для ручного входа');
             client = new OwaClient({
                 serverUrl: a.serverUrl,
-                partition: 'owa-test',
+                partition: this.profile ? `${this.profile.partition}-test` : 'owa-test',
                 onConnectionStage: passed,
-                useWindowsAuth: !a.username || !password,
-                username: a.username || undefined,
-                password,
+                useWindowsAuth,
+                username: useWindowsAuth ? undefined : a.username,
+                password: useWindowsAuth ? undefined : password,
                 trustedFingerprint: pinFor(this.settings.account, hostOf(a.serverUrl)),
             });
+            this.probe = client;
             log.info(`test: connecting to ${client.host}`);
             const now = new Date();
             const events = await client.fetchCalendarView(
@@ -946,6 +1056,7 @@ export class CalendarService extends EventEmitter {
             };
         } finally {
             client?.dispose();
+            if (this.probe === client) this.probe = undefined;
         }
     }
 
@@ -976,7 +1087,7 @@ export class CalendarService extends EventEmitter {
                 trustedCertHost: pending.host,
             },
         };
-        saveSettings(this.settings);
+        this.persistSettings(this.settings);
         this.rebuildClient();
         this.emit('changed');
         void this.syncNow('manual');
@@ -993,7 +1104,7 @@ export class CalendarService extends EventEmitter {
                 trustedCertHost: undefined,
             },
         };
-        saveSettings(this.settings);
+        this.persistSettings(this.settings);
         this.rebuildClient();
         this.emit('changed');
     }

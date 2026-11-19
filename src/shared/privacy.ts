@@ -5,6 +5,8 @@ import { type CalendarEvent } from './types';
 export function privateEvent(event: CalendarEvent, language: 'ru' | 'en' = 'ru'): CalendarEvent {
     return {
         id: event.id,
+        ...(event.accountId ? { accountId: event.accountId } : {}),
+        ...(event.accountColor ? { accountColor: event.accountColor } : {}),
         title: language === 'en' ? 'Busy' : 'Занято',
         start: event.start,
         end: event.end,

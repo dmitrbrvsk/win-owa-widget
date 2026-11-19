@@ -232,6 +232,7 @@ function EventDetail({ event, events, t, lang, onClose, onExpand, onJoin, toast 
             </div>
 
             <div className='detail-body scroll'>
+                {event.accountLabel && <div className='hint'>{event.accountLabel}</div>}
                 <div className='facts'>
                     <Icon name='clock' size={16} color='var(--fg2)' />
                     <div>

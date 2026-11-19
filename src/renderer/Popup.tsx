@@ -20,6 +20,7 @@ import { urlHost } from '../shared/meetingUrl';
 import { searchEvents } from '../shared/search';
 import { type CalendarEvent, type Snapshot } from '../shared/types';
 
+import { AccountFilters, useCalendarEvents } from './AccountControls';
 import { AllDayMeetings } from './AllDayMeetings';
 import { api } from './api';
 import { Detail } from './Detail';
@@ -33,6 +34,7 @@ import { Timeline } from './Timeline';
 export function Popup({ snap }: { snap: Snapshot }) {
     const now = useNow(15_000);
     const { t, lang } = useI18n(snap);
+    const shownEvents = useCalendarEvents(snap);
     const today = startOfDay(now);
     const [day, setDay] = useState(today);
     const [open, setOpen] = useState<CalendarEvent | null>(null);
@@ -75,6 +77,7 @@ export function Popup({ snap }: { snap: Snapshot }) {
 
     // A notification about a meeting was clicked: show that meeting.
     const { events } = snap;
+    if (snap.accounts && open && !events.some((event) => event.id === open.id)) setOpen(null);
     useEffect(
         () =>
             api.onOpenEvent((id) => {
@@ -131,13 +134,13 @@ export function Popup({ snap }: { snap: Snapshot }) {
     }, []);
 
     const results = useMemo(
-        () => (searching ? searchEvents(snap.events, query, now) : []),
-        [searching, snap.events, query, now],
+        () => (searching ? searchEvents(shownEvents, query, now) : []),
+        [searching, shownEvents, query, now],
     );
     const activeIndex = Math.min(activeHit, Math.max(0, results.length - 1));
-    const dayEvents = useMemo(() => eventsOnDay(snap.events, day), [snap.events, day]);
+    const dayEvents = useMemo(() => eventsOnDay(shownEvents, day), [shownEvents, day]);
     const allDay = dayEvents.filter((e) => e.isAllDay);
-    const invites = useMemo(() => pendingInvitations(snap.events, now), [snap.events, now]);
+    const invites = useMemo(() => pendingInvitations(shownEvents, now), [shownEvents, now]);
     const isToday = sameDay(day, today);
     const workday = {
         startHour: snap.settings.workdayStartHour,
@@ -145,8 +148,8 @@ export function Popup({ snap }: { snap: Snapshot }) {
     };
     const freeTime = useFreeTime(snap.settings.showFreeTime, snap.events, day, workday, now);
 
-    const live = activeMeetings(snap.events, now);
-    const next = nextMeetingGroup(snap.events, now);
+    const live = activeMeetings(shownEvents, now);
+    const next = nextMeetingGroup(shownEvents, now);
     const bannerEvent =
         live.find((e) => joinUrlForActions(e)) ??
         live[0] ??
@@ -293,6 +296,7 @@ export function Popup({ snap }: { snap: Snapshot }) {
                 </div>
             )}
 
+            <AccountFilters snap={snap} />
             <div className='popup-body'>
                 {searching ? (
                     <SearchResults
@@ -426,7 +430,12 @@ export function Popup({ snap }: { snap: Snapshot }) {
                                     type='button'
                                     className='btn compact'
                                     onClick={() => {
-                                        void api.trustCertificate(sync.untrustedCert!.fingerprint);
+                                        void api
+                                            .trustCertificate(
+                                                sync.untrustedCert!.fingerprint,
+                                                snap.syncAccountId,
+                                            )
+                                            .catch((error) => toast(ipcMessage(error)));
                                     }}
                                 >
                                     {t.trustCert}
@@ -487,7 +496,11 @@ export function Popup({ snap }: { snap: Snapshot }) {
                             .openCalendar({ day: calendarDateValue(day), eventId: open.id })
                             .catch((e) => setToastMsg(ipcMessage(e)));
                     }}
-                    event={snap.events.find((e) => e.id === open.id) ?? open}
+                    event={
+                        shownEvents.find((e) => e.id === open.id) ??
+                        snap.events.find((e) => e.id === open.id) ??
+                        open
+                    }
                     events={snap.events}
                     t={t}
                     lang={lang}

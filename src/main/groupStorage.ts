@@ -18,17 +18,7 @@ export function loadParticipantGroups(): ParticipantGroupBook {
             unreadableGroups.delete(path);
             return new ParticipantGroupBook();
         }
-        const plain = decrypt(readBounded(path, MAX_GROUP_FILE_BYTES));
-        if (!plain) throw new Error('Cannot decrypt participant groups');
-        const raw: unknown = JSON.parse(plain);
-        if (!raw || typeof raw !== 'object' || Array.isArray(raw))
-            throw new Error('Invalid participant groups');
-        const value = raw as { version?: unknown; groups?: unknown };
-        if (value.version !== 1 || !Array.isArray(value.groups))
-            throw new Error('Invalid participant groups');
-        const book = ParticipantGroupBook.parse(raw);
-        if (book.toJSON().groups.length !== value.groups.length)
-            throw new Error('Invalid participant group entries');
+        const book = readGroups(path);
         unreadableGroups.delete(path);
         return book;
     } catch {
@@ -39,6 +29,35 @@ export function loadParticipantGroups(): ParticipantGroupBook {
         return new ParticipantGroupBook();
     }
 }
+function readGroups(path: string) {
+    const plain = decrypt(readBounded(path, MAX_GROUP_FILE_BYTES));
+    if (!plain) throw new Error('Cannot decrypt participant groups');
+    const raw: unknown = JSON.parse(plain);
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw))
+        throw new Error('Invalid participant groups');
+    const value = raw as { version?: unknown; groups?: unknown };
+    if (value.version !== 1 || !Array.isArray(value.groups))
+        throw new Error('Invalid participant groups');
+    const book = ParticipantGroupBook.parse(raw);
+    if (book.toJSON().groups.length !== value.groups.length)
+        throw new Error('Invalid participant group entries');
+    return book;
+}
+
+export function removeAccountGroups(
+    owners: ReadonlySet<string>,
+    path = nodePath.join(dir(), 'groups.bin'),
+) {
+    if (!existsSync(path)) return;
+    const current = readGroups(path).toJSON();
+    const groups = current.groups.filter((group) => !owners.has(group.account));
+    if (groups.length === current.groups.length) return;
+    const encrypted = encrypt(JSON.stringify({ ...current, groups }));
+    if (!encrypted || encrypted.length > MAX_GROUP_FILE_BYTES)
+        throw new Error('Не удалось сохранить группы остальных аккаунтов');
+    writeAtomic(path, encrypted);
+}
+
 export function saveParticipantGroups(book: ParticipantGroupBook): boolean {
     const path = nodePath.join(dir(), 'groups.bin');
     if (unreadableGroups.has(path))

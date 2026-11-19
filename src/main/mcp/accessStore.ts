@@ -42,6 +42,38 @@ export class McpAccessStore {
         writePrivateJson(this.accessFile, { format: 1, account, access });
     }
 
+    loadScopes(sources: ReadonlyMap<string, string>): Map<string, McpAccess> {
+        try {
+            const raw = readPrivateJson(this.accessFile, 256 * 1024);
+            if (!isRecord(raw)) return new Map();
+            if (raw.format === 1) {
+                const match = [...sources].find(([, legacy]) => legacy === raw.account);
+                const access = match && parseMcpAccess(raw.access);
+                const migrated =
+                    match && access?.enabled ? new Map([[match[0], access]]) : new Map();
+                this.saveScopes(migrated);
+                return migrated;
+            }
+            if (raw.format !== 2 || !isRecord(raw.scopes)) return new Map();
+            const scopes = new Map<string, McpAccess>();
+            for (const key of sources.keys()) {
+                if (!Object.hasOwn(raw.scopes, key)) continue;
+                const access = parseMcpAccess(raw.scopes[key]);
+                if (access.enabled) scopes.set(key, access);
+            }
+            if (Object.keys(raw.scopes).length !== scopes.size) this.saveScopes(scopes);
+            return scopes;
+        } catch {
+            return new Map();
+        }
+    }
+
+    saveScopes(scopes: ReadonlyMap<string, McpAccess>): void {
+        rmSync(this.accessFile, { force: true });
+        if (scopes.size)
+            writePrivateJson(this.accessFile, { format: 2, scopes: Object.fromEntries(scopes) });
+    }
+
     removeConnection(): void {
         rmSync(this.connectionFile, { force: true });
     }

@@ -72,6 +72,7 @@ export function Reminder({ snap }: { snap: Snapshot }) {
                 >
                     <div>
                         <div className='name'>{displayTitle(e)}</div>
+                        {e.accountLabel && <div className='hint'>{e.accountLabel}</div>}
                         <div className='sec tnum nowrap'>
                             {range(e.start, e.end, lang)}
                             {e.organizer ? ` · ${e.organizer}` : ''}

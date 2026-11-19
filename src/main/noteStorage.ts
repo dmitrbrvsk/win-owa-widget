@@ -74,6 +74,13 @@ export function hasAccountNotes(account: string): boolean {
     return existsSync(notePath(account));
 }
 
+export function removeAccountNotes(account: string): void {
+    const path = notePath(account);
+    rmSync(path, { force: true });
+    rmSync(`${path}.tmp`, { force: true });
+    unreadableNotes.delete(path);
+}
+
 /** Never overwrite a current note; the legacy ciphertext remains intact for recovery. */
 export function prepareNoteMigration(from: string, to: string): () => void {
     if (!hasAccountNotes(from)) return () => {};

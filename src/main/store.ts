@@ -16,9 +16,12 @@ export { loadParticipantGroups, saveParticipantGroups } from './groupStorage';
 export { hasUnassignedNotes, loadNotes, saveNotes } from './noteStorage';
 export { loadRecent, removeRecent, saveRecent } from './recentStorage';
 
-/** No settings file yet: the very first launch, when the settings window should open to confirm the defaults. */
+/** On the very first launch, show the setup before any preferences or profiles have been saved. */
 export function isFirstRun(): boolean {
-    return !existsSync(nodePath.join(dir(), 'settings.json'));
+    const directory = dir();
+    return !['settings.json', 'accounts.json'].some((file) =>
+        existsSync(nodePath.join(directory, file)),
+    );
 }
 
 export function loadSettings(): AppSettings {

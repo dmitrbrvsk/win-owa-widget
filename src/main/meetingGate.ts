@@ -67,10 +67,10 @@ export class MeetingGate {
     private readonly recipients = new SlidingWindow(MAX_RECIPIENTS_PER_HOUR, HOUR_MS);
     private readonly prompts = new SlidingWindow(MAX_PROMPTS_PER_10_MIN, TEN_MIN_MS);
 
-    constructor(private readonly deps: GateDeps) {}
+    constructor(private readonly deps?: GateDeps) {}
 
     private now(): number {
-        return this.deps.now ? this.deps.now() : Date.now();
+        return this.deps?.now ? this.deps.now() : Date.now();
     }
 
     private checkLimits(count: number) {
@@ -85,15 +85,16 @@ export class MeetingGate {
             );
     }
 
-    async submit(raw: unknown): Promise<CreateMeetingResult> {
+    async submit(raw: unknown, deps = this.deps): Promise<CreateMeetingResult> {
+        if (!deps) throw new Error('Аккаунт не настроен');
         return this.run(async () => {
             const meeting = parseCreateMeeting(raw, new Date(this.now()));
             const count = meeting.requiredAttendees.length + meeting.optionalAttendees.length;
             return {
                 recipients: count,
-                confirm: () => this.deps.confirm(meeting),
+                confirm: () => deps.confirm(meeting),
                 deliver: async () => {
-                    await this.deps.deliver(meeting);
+                    await deps.deliver(meeting);
                     return { status: 'created', invited: count };
                 },
             };

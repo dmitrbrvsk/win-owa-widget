@@ -35,7 +35,7 @@ export function privateDirectory(path: string): void {
     assertPrivate(path, true);
 }
 
-export function readPrivateJson(path: string): unknown {
+export function readPrivateJson(path: string, maxBytes = 4096): unknown {
     if (!nodePath.isAbsolute(path)) throw new Error('MCP file path must be absolute');
     assertPrivate(nodePath.dirname(path), true);
     assertPrivate(path, false);
@@ -43,7 +43,7 @@ export function readPrivateJson(path: string): unknown {
     const fd = openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
     try {
         const stat = fstatSync(fd);
-        if (!stat.isFile() || stat.size > 4096 || stat.nlink !== 1)
+        if (!stat.isFile() || stat.size > maxBytes || stat.nlink !== 1)
             throw new Error('Invalid MCP file');
         if (
             process.platform !== 'win32' &&

@@ -16,6 +16,7 @@ import {
 } from '../shared/stats';
 import { type CalendarEvent, type Snapshot, type StatsRequest } from '../shared/types';
 
+import { AccountPicker } from './AccountControls';
 import { Alert } from './Alert';
 import { api } from './api';
 import { ipcMessage, useI18n, useNow } from './hooks';
@@ -168,20 +169,32 @@ export function Stats({ snap }: { snap: Snapshot }) {
     const [error, setError] = useState<string | null>(null);
 
     const period = useMemo(() => statsPeriod(kind, new Date(todayMs)), [kind, todayMs]);
-    const request = useMemo<StatsRequest>(
+    type CalendarRequest = StatsRequest & { source?: string };
+    const request = useMemo<CalendarRequest>(
         () => ({
             start: new Date(period.start).toISOString(),
             end: new Date(period.end).toISOString(),
+            source: snap.selectedAccountId,
         }),
-        [period],
+        [period, snap.selectedAccountId],
     );
+    const [previous, setPrevious] = useState(request);
+    if (previous !== request) {
+        setPrevious(request);
+        setEvents(null);
+        setError(null);
+    }
+    const latest = useRef(request);
+    useEffect(() => {
+        latest.current = request;
+    }, [request]);
 
-    // One request at a time (the main process allows no more); a newer period waits and replaces
-    // older ones in the queue, so clicking through the periods cannot pile requests on the server.
+    // Queue only the current period/account while a previous request is in flight.
     const running = useRef(false);
-    const queued = useRef<StatsRequest | null>(null);
-    // eslint-disable-next-line react-hooks/preserve-manual-memoization -- This stable callback drains its ref-backed queue recursively; React Compiler is not used.
-    const run = useCallback(async (req: StatsRequest) => {
+    const queued = useRef<CalendarRequest | null>(null);
+    // eslint-disable-next-line react-hooks/preserve-manual-memoization -- The stable callback drains its ref-backed queue recursively.
+    const run = useCallback(async (req: CalendarRequest) => {
+        if (req !== latest.current) return;
         if (running.current) {
             queued.current = req;
             return;
@@ -189,19 +202,19 @@ export function Stats({ snap }: { snap: Snapshot }) {
         running.current = true;
         setLoading(true);
         try {
-            const list = await api.getStatsEvents(req);
-            if (!queued.current) {
+            const list = await api.getStatsEvents(req, req.source);
+            if (req === latest.current) {
                 setEvents(list);
                 setError(null);
             }
-        } catch (e) {
-            setError(ipcMessage(e));
+        } catch (cause) {
+            if (req === latest.current) setError(ipcMessage(cause));
         } finally {
             running.current = false;
             const next = queued.current;
             queued.current = null;
+            setLoading(false);
             if (next) void run(next);
-            else setLoading(false);
         }
     }, []);
 
@@ -256,6 +269,7 @@ export function Stats({ snap }: { snap: Snapshot }) {
         <div className='stats'>
             <header className='st-head'>
                 <h1>{t.statsTitle}</h1>
+                <AccountPicker snap={snap} />
                 <p className='sec'>{t.statsLead}</p>
             </header>
 

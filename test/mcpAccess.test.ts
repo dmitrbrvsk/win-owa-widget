@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import nodePath from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { demoEvents } from '../src/main/demo';
 import { type McpCalendarView } from '../src/main/mcp/catalog';
 import { McpController } from '../src/main/mcp/controller';
 import { DEFAULT_SETTINGS } from '../src/main/store.defaults';
@@ -213,3 +214,85 @@ it.each([true, false])(
         expect(upgraded.state().running).toBe(false);
     },
 );
+
+it('reads only separately granted calendars and searches only titles authorized for that account', async () => {
+    const { controller: old, options, directory, view, file, confirm } = setup();
+    const granted = { enabled: true, allowTitles: true };
+    await old.setAccess(granted);
+    old.close();
+    const a = { id: 'a', label: 'Account A', owner: view.account, revision: 0, sync: view.sync };
+    const b = {
+        id: 'b',
+        label: 'Account B',
+        owner: 'unrelated-owner',
+        revision: 0,
+        sync: view.sync,
+    };
+    let sources = [a, b];
+    view.events = sources.map(({ id }) => ({
+        ...demoEvents()[0],
+        id: `${id}-local-event`,
+        accountId: id,
+        title: `Private title ${id}`,
+        start: '2026-10-16T09:00:00Z',
+        end: '2026-10-16T10:00:00Z',
+    }));
+    const controller = new McpController({ ...options, directory, sources: () => sources });
+    closers.push(() => controller.close());
+    await controller.initialize();
+    expect(controller.state('a').access).toEqual(granted);
+    expect(controller.state('b').access).toEqual(disabled);
+    const args = { start: '2026-10-16T00:00:00Z', end: '2026-10-17T00:00:00Z' };
+    const list = async () =>
+        (await callBridge(file, 'list_meetings', args)) as {
+            meetings: Array<{ id: string; title?: string }>;
+        };
+    const before = await list();
+    expect(before.meetings).toHaveLength(1);
+    expect(before.meetings[0].title).toBe('Private title a');
+    const firstEndpoint = readFileSync(file, 'utf8');
+    await controller.setAccess(readOnly, 'b');
+    expect(confirm).toHaveBeenLastCalledWith(readOnly, 'Account B');
+    const both = await list();
+    expect(both.meetings).toHaveLength(2);
+    expect(both.meetings.map((meeting) => meeting.title)).toEqual(['Private title a', undefined]);
+    expect(readFileSync(file, 'utf8')).not.toBe(firstEndpoint);
+    expect(both.meetings.map((meeting) => meeting.id)).not.toContain(before.meetings[0].id);
+    await expect(
+        callBridge(file, 'search_meetings', { ...args, query: 'title b' }),
+    ).resolves.toMatchObject({ meetings: [] });
+    view.privacyMode = true;
+    expect((await list()).meetings.every((meeting) => meeting.title === undefined)).toBe(true);
+    sources = [b];
+    await controller.removeSource(a.id, a.owner);
+    expect((await list()).meetings).toHaveLength(1);
+});
+
+it('discards pending scoped approval if the account disappears', async () => {
+    const { options, view, file } = setup();
+    const source = {
+        id: 'a',
+        label: 'Account A',
+        owner: view.account,
+        revision: 0,
+        sync: view.sync,
+    };
+    let sources = [source];
+    let approve!: (value: boolean) => void;
+    const controller = new McpController({
+        ...options,
+        sources: () => sources,
+        confirm: () =>
+            new Promise((resolve) => {
+                approve = resolve;
+            }),
+    });
+    closers.push(() => controller.close());
+    await controller.initialize();
+    const pending = controller.setAccess(readOnly, source.id);
+    sources = [];
+    await controller.removeSource(source.id, source.owner);
+    approve(true);
+    await expect(pending).rejects.toThrow('expired');
+    expect(existsSync(file)).toBe(false);
+});

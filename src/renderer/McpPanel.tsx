@@ -152,7 +152,7 @@ export function McpPanel({ snap }: { snap: Snapshot }) {
     }
 
     async function copyConfiguration() {
-        if (!state?.running || !state.access.enabled || !state.configuration || busy) return;
+        if (!state?.running || !state.configuration || busy) return;
         const { current } = revision;
         setError(null);
         setCopied(false);
@@ -168,7 +168,7 @@ export function McpPanel({ snap }: { snap: Snapshot }) {
     const unavailable = !state || state.error === 'unavailable';
     const status = panelStatus(state, loading, busy, text);
     const controlsDisabled = controlsLocked(state, loading, busy);
-    const configuration = state?.running && enabled ? state.configuration : '';
+    const configuration = state?.running ? state.configuration : '';
 
     return (
         <section aria-label='Local MCP'>

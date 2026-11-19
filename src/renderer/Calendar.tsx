@@ -13,6 +13,7 @@ import { dayTitle } from '../shared/format';
 import { searchEvents } from '../shared/search';
 import { type CalendarEvent, type CalendarSelection, type Snapshot } from '../shared/types';
 
+import { AccountFilters, useCalendarEvents } from './AccountControls';
 import { AllDayMeetings } from './AllDayMeetings';
 import { api } from './api';
 import { Detail } from './Detail';
@@ -24,6 +25,7 @@ import { Timeline } from './Timeline';
 
 export function Calendar({ snap }: { snap: Snapshot }) {
     const { t, lang } = useI18n(snap);
+    const shownEvents = useCalendarEvents(snap);
     const now = useNow(15_000);
     const [day, setDay] = useState(() => startOfDay(new Date()));
     const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -74,7 +76,7 @@ export function Calendar({ snap }: { snap: Snapshot }) {
         return () => clearTimeout(timer);
     }, [message]);
 
-    const dayEvents = useMemo(() => eventsOnDay(snap.events, day), [snap.events, day]);
+    const dayEvents = useMemo(() => eventsOnDay(shownEvents, day), [shownEvents, day]);
     const workday = {
         startHour: snap.settings.workdayStartHour,
         endHour: snap.settings.workdayEndHour,
@@ -83,7 +85,7 @@ export function Calendar({ snap }: { snap: Snapshot }) {
     const today = day.toDateString() === now.toDateString();
     const allDay = dayEvents.filter((event) => event.isAllDay);
     const selected = dayEvents.find((event) => event.id === selectedId);
-    const results = useMemo(() => searchEvents(snap.events, query, now), [snap.events, query, now]);
+    const results = useMemo(() => searchEvents(shownEvents, query, now), [shownEvents, query, now]);
     const activeIndex = Math.max(0, Math.min(activeHit, results.length - 1));
     const searching = !!query.trim();
 
@@ -227,6 +229,7 @@ export function Calendar({ snap }: { snap: Snapshot }) {
                 <span className='grow' />
                 <span className='hint calendar-count'>{t.calendarDayCount(dayEvents.length)}</span>
             </div>
+            <AccountFilters snap={snap} />
             <div className='calendar-columns'>
                 <section
                     className='calendar-schedule'

@@ -1,11 +1,11 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import nodePath from 'node:path';
 
 import { legacyAccountOwner } from '../shared/accountOwner';
 
-import { loadParticipantGroups, prepareGroupMigration } from './groupStorage';
-import { hasAccountNotes, prepareNoteMigration } from './noteStorage';
+import { loadParticipantGroups, prepareGroupMigration, removeAccountGroups } from './groupStorage';
+import { hasAccountNotes, prepareNoteMigration, removeAccountNotes } from './noteStorage';
 import { decrypt, encrypt, profileDir, readBounded, writeAtomic } from './profileStorage';
 
 interface Receipt {
@@ -87,5 +87,29 @@ export function incompleteAccountMigration(owner: string): boolean {
         return receipt?.to === owner && !receipt.done;
     } catch {
         return true;
+    }
+}
+
+export function removeMigratedAccountData(owner: string) {
+    const legacy = legacyAccountOwner(owner);
+    const location = legacy ? paths(legacy.key) : undefined;
+    const receipt = legacy ? readReceipt(legacy.key) : undefined;
+    const ownsLegacy = !!legacy && (receipt?.to === owner || (!receipt && !legacy.ambiguous));
+    const owners = new Set(ownsLegacy && legacy ? [owner, legacy.key] : [owner]);
+    removeAccountGroups(owners);
+    const directory = nodePath.join(profileDir(), 'account-migrations');
+    if (existsSync(directory)) {
+        for (const name of readdirSync(directory)) {
+            if (!/^[a-f0-9]{64}\.groups\.bin$/.test(name)) continue;
+            const path = nodePath.join(directory, name);
+            if (ownsLegacy && path === location?.backup) rmSync(path, { force: true });
+            else removeAccountGroups(owners, path);
+            rmSync(`${path}.tmp`, { force: true });
+        }
+    }
+    for (const key of owners) removeAccountNotes(key);
+    if (ownsLegacy && location) {
+        rmSync(location.receipt, { force: true });
+        rmSync(`${location.receipt}.tmp`, { force: true });
     }
 }
