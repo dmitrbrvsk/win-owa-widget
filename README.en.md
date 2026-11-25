@@ -13,6 +13,7 @@
 
 <p align="center">
   <a href="https://github.com/dmitrbrvsk/win-owa-widget/releases/latest"><strong>Download for Windows →</strong></a>
+  &nbsp; · &nbsp; <a href="https://dmitrbrvsk.github.io/win-owa-widget/">Try the demo (Russian)</a>
   &nbsp; · &nbsp; <a href="#install-and-connect">Get started</a>
   &nbsp; · &nbsp; <a href="docs/GUIDE.en.md">Guide and FAQ</a>
   &nbsp; · &nbsp; <a href="CHANGELOG.en.md">Changelog</a>
