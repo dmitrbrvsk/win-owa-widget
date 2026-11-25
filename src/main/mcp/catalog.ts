@@ -37,6 +37,9 @@ export class McpCatalog {
             throw new Error('MCP access is disabled');
         }
         const titles = access.allowTitles === true && !view.privacyMode;
+        const canReadTitle = (event: CatalogEntry['event']) =>
+            titles &&
+            (!view.titleAccounts || (!!event.accountId && view.titleAccounts.has(event.accountId)));
         this.reconcileIds(view);
         const request = catalogRequest(tool, args, titles);
         const metadata = catalogMetadata(view, titles);
@@ -44,9 +47,9 @@ export class McpCatalog {
             case 'get_status':
                 return { metadata, loadedMeetings: view.events.length };
             case 'get_meeting':
-                return { metadata, meeting: this.meeting(request.id, view, titles) };
+                return { metadata, meeting: this.meeting(request.id, view, canReadTitle) };
             default:
-                return { metadata, ...this.list(request, view, titles) };
+                return { metadata, ...this.list(request, view, canReadTitle) };
         }
     }
 
@@ -81,23 +84,34 @@ export class McpCatalog {
         return id;
     }
 
-    private meeting(id: string, view: McpCalendarView, titles: boolean): McpPayload {
+    private meeting(
+        id: string,
+        view: McpCalendarView,
+        canReadTitle: (event: CatalogEntry['event']) => boolean,
+    ): McpPayload {
         const rawId = this.rawIds.get(id);
         const event =
             rawId === undefined ? undefined : view.events.find((item) => item.id === rawId);
         const entry = event ? catalogEntry(event) : null;
         if (!entry) throw new Error('Meeting unavailable; list meetings again');
-        return projectMeeting(entry, id, titles);
+        return projectMeeting(entry, id, canReadTitle(entry.event));
     }
 
-    private list(request: ListRequest, view: McpCalendarView, titles: boolean): McpPayload {
+    private list(
+        request: ListRequest,
+        view: McpCalendarView,
+        canReadTitle: (event: CatalogEntry['event']) => boolean,
+    ): McpPayload {
         const matches: CatalogEntry[] = [];
         for (const event of view.events) {
             const entry = catalogEntry(event);
             if (!entry || entry.start >= request.period.to || entry.end <= request.period.from)
                 continue;
             // Search only the subject that can be returned, never hidden or truncated text.
-            if (request.query && !catalogTitle(event).toLowerCase().includes(request.query))
+            if (
+                request.query &&
+                (!canReadTitle(event) || !catalogTitle(event).toLowerCase().includes(request.query))
+            )
                 continue;
             matches.push(entry);
         }
@@ -106,7 +120,9 @@ export class McpCatalog {
             requestedPeriod: { start: request.period.start, end: request.period.end },
             meetings: matches
                 .slice(0, request.limit)
-                .map((entry) => projectMeeting(entry, this.opaqueId(entry.event.id), titles)),
+                .map((entry) =>
+                    projectMeeting(entry, this.opaqueId(entry.event.id), canReadTitle(entry.event)),
+                ),
             hasMore: matches.length > request.limit,
         };
     }

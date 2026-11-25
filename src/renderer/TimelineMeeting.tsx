@@ -93,7 +93,8 @@ export function TimelineMeeting({
                           }
                 }
                 onClick={() => onOpen(e)}
-                aria-label={`${displayTitle(e)}, ${when}`}
+                aria-label={[displayTitle(e), when, e.accountLabel].filter(Boolean).join(', ')}
+                title={e.accountLabel}
             >
                 <div className='t nowrap'>
                     {displayTitle(e)}

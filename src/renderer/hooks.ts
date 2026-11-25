@@ -96,7 +96,7 @@ export const PLATFORM_COLOR: Record<MeetingPlatform, string> = {
     generic: 'var(--generic)',
 };
 
-export const eventColor = (e: CalendarEvent) => PLATFORM_COLOR[e.platform];
+export const eventColor = (e: CalendarEvent) => e.accountColor ?? PLATFORM_COLOR[e.platform];
 
 /**
  * What a Join button adds after "Join": nothing for a link to a known service (Teams, Zoom, Webex,

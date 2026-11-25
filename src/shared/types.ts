@@ -1,4 +1,5 @@
 import { type AccountRecoveryApi } from './accountOwner';
+import { ACCOUNT_IPC, type AccountsApi } from './accounts';
 import { type FrequentApi } from './frequent';
 import { type HotkeyApi, type Hotkeys } from './hotkeys';
 import { type McpApi } from './mcp';
@@ -17,6 +18,9 @@ export type RsvpAction = 'accept' | 'tentative' | 'decline';
 export interface CalendarEvent {
     /** Exchange ItemId (stable per occurrence). */
     id: string;
+    accountId?: string;
+    accountColor?: string;
+    accountLabel?: string;
     changeKey?: string;
     title: string;
     /** ISO 8601 instants. Dates travel as strings across IPC. */
@@ -352,7 +356,7 @@ export interface CalendarSelection {
     eventId?: string;
 }
 
-export interface OwaApi extends McpApi, AccountRecoveryApi, HotkeyApi, FrequentApi {
+export interface OwaApi extends McpApi, AccountRecoveryApi, HotkeyApi, FrequentApi, AccountsApi {
     setPrivacyMode(enabled: boolean): Promise<void>;
     saveParticipantGroup(account: string, input: ParticipantGroupInput): Promise<ParticipantGroup>;
     deleteParticipantGroup(account: string, id: string): Promise<void>;
@@ -378,9 +382,9 @@ export interface OwaApi extends McpApi, AccountRecoveryApi, HotkeyApi, FrequentA
      * travels; the main process finds the meeting itself and writes the clipboard itself.
      */
     meetingMenu(eventId: string): Promise<void>;
-    saveSettings(update: SettingsUpdate): Promise<SaveResult>;
-    testConnection(update: SettingsUpdate): Promise<ConnectionTestResult>;
-    trustCertificate(fingerprint: string): Promise<void>;
+    saveSettings(update: SettingsUpdate, source?: string): Promise<SaveResult>;
+    testConnection(update: SettingsUpdate, source?: string): Promise<ConnectionTestResult>;
+    trustCertificate(fingerprint: string, accountId?: string): Promise<void>;
     forgetCertificate(): Promise<void>;
     /** Forgets the cached meetings and the server session, then loads everything again. Password and settings stay. */
     clearCache(): Promise<void>;
@@ -398,11 +402,11 @@ export interface OwaApi extends McpApi, AccountRecoveryApi, HotkeyApi, FrequentA
     getCalendarSelection(): Promise<CalendarSelection | null>;
     onCalendarSelection(cb: (selection: CalendarSelection) => void): () => void;
     /** Free/busy of the given people for one window (at most 14 days), plus the user's own mailbox when the server tells. */
-    getAvailability(request: AvailabilityRequest): Promise<AvailabilityResult>;
+    getAvailability(request: AvailabilityRequest, source?: string): Promise<AvailabilityResult>;
     /** Opens the meeting statistics window. */
     openStats(): Promise<void>;
     /** The person's own meetings for one period (at most 60 days), in one calendar view request. */
-    getStatsEvents(request: StatsRequest): Promise<CalendarEvent[]>;
+    getStatsEvents(request: StatsRequest, source?: string): Promise<CalendarEvent[]>;
     closeWindow(): Promise<void>;
     quit(): Promise<void>;
     onReminder(cb: (p: ReminderPayload) => void): () => void;
@@ -413,9 +417,9 @@ export interface OwaApi extends McpApi, AccountRecoveryApi, HotkeyApi, FrequentA
     onOpenEvent(cb: (eventId: string) => void): () => void;
     resizePopup(height: number): void;
     /** Directory lookup for the recipients field (at least 2 characters; at most 8 results). Goes only to the configured server. */
-    resolvePeople(query: string): Promise<PersonSuggestion[]>;
+    resolvePeople(query: string, source?: string): Promise<PersonSuggestion[]>;
     /** Creates the meeting and sends invitations, after the person confirms in a native dialog the page cannot click. */
-    createMeeting(input: CreateMeetingInput): Promise<CreateMeetingResult>;
+    createMeeting(input: CreateMeetingInput, source?: string): Promise<CreateMeetingResult>;
     /** Opens (or focuses) the "Create meeting" window. With a prefill, an already open form is refilled. */
     openCreateMeeting(prefill?: CreateMeetingPrefill): Promise<void>;
     /** The prefill the "Create meeting" window was opened with. */
@@ -435,16 +439,7 @@ export interface OwaApi extends McpApi, AccountRecoveryApi, HotkeyApi, FrequentA
 }
 
 export const IPC = {
-    getMcpState: 'owa:getMcpState',
-    setMcpAccess: 'owa:setMcpAccess',
-    setPrivacyMode: 'owa:setPrivacyMode',
-    saveParticipantGroup: 'owa:saveParticipantGroup',
-    deleteParticipantGroup: 'owa:deleteParticipantGroup',
-    connectionProgress: 'owa:connectionProgress',
-    getSupportReport: 'owa:getSupportReport',
-    checkForUpdates: 'owa:checkForUpdates',
-    openUpdatePage: 'owa:openUpdatePage',
-
+    ...ACCOUNT_IPC,
     recoverAccountData: 'owa:recoverAccountData',
     getSnapshot: 'owa:getSnapshot',
     snapshot: 'owa:snapshot',

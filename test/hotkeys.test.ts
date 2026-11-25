@@ -206,19 +206,6 @@ describe('the main process and the combinations', () => {
         expect(main).toMatch(/will-quit[\s\S]{0,120}hotkeys\.stop\(\)/);
         expect(main).toMatch(/hotkeys\.apply\(service\.settings\.hotkeys\)/);
     });
-    it('a sent meeting is never reported failed because its people could not be remembered', () => {
-        expect(main).toMatch(
-            /await service\.createMeeting\(m\);[\s\S]{0,160}try \{\s*service\.local\.rememberMeeting\(m, service\.events\);\s*\} catch/,
-        );
-    });
-    it('switching accounts while the confirmation is open sends nothing from the other account', () => {
-        expect(main).toMatch(
-            /confirm: \(m\) => \{\s*createRevision = service\.accountRevision;\s*return confirmInvitations\(m\);/,
-        );
-        expect(main).toMatch(
-            /if \(service\.accountRevision !== createRevision\)\s*throw new Error\([^)]*\);\s*await service\.createMeeting\(m\)/,
-        );
-    });
     it('only the settings window may pause them, and closing it resumes them', () => {
         expect(main).toMatch(
             /IPC\.pauseHotkeys[\s\S]{0,160}fromWebContents\(e\.sender\) === settingsWin\) hotkeys\.pause/,

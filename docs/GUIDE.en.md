@@ -137,7 +137,7 @@ Designed for corporate, on-premises Exchange with OWA web access: an OWA login f
 <details>
 <summary><b>Can I connect Google Calendar, iCloud or several Exchange accounts?</b></summary>
 
-Not yet: one Exchange account only.
+You can connect several on-premises Exchange accounts. In Settings, enter each account’s server and credentials or use your current Windows sign-in, then choose its color and which account is primary. The popup and full calendar combine meetings, and the shared filter changes the schedule and search. The tray and reminders still use all calendars. Google Calendar and iCloud are unsupported.
 </details>
 
 <details>

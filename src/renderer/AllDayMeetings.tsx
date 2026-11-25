@@ -34,6 +34,10 @@ export function AllDayMeetings({ events, t, onOpen, selectedId }: Props) {
                     key={event.id}
                     className={`pill nowrap${selectedId === event.id ? ' selected' : ''}`}
                     style={{ ['--c' as string]: eventColor(event) }}
+                    title={event.accountLabel}
+                    aria-label={[displayTitle(event), event.accountLabel]
+                        .filter(Boolean)
+                        .join(', ')}
                     onClick={() => onOpen(event)}
                     {...meetingMenuProps(event.id)}
                 >

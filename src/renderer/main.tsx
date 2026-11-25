@@ -100,9 +100,11 @@ function ConnectedApp() {
             <MountedRoute key={route}>
                 <Route
                     key={
-                        route === 'calendar' || route === 'availability'
-                            ? snap.participantGroups.account
-                            : undefined
+                        route === 'settings'
+                            ? snap.selectedAccountId
+                            : route === 'availability' && !snap.accounts
+                              ? snap.participantGroups.account
+                              : undefined
                     }
                     snap={snap}
                 />

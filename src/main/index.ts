@@ -17,6 +17,7 @@ import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import nodePath from 'node:path';
 
+import { type AccountDraft, accountDraft } from '../shared/accounts';
 import { calendarDateValue, parseCalendarSelection } from '../shared/calendar';
 import { describeChanges, type EventChange } from '../shared/changes';
 import { supportReport } from '../shared/diagnostics';
@@ -27,6 +28,7 @@ import { meetingMenuItems } from '../shared/meetingMenu';
 import { linksInText, safeUrl, urlHost } from '../shared/meetingUrl';
 import { privateEvent } from '../shared/privacy';
 import { replyBody, replyConfirmText } from '../shared/replyText';
+import { serverKey } from '../shared/serverUrl';
 import { SnapshotPublisher, snapshotScope } from '../shared/snapshotTransport';
 import { type SnapshotState } from '../shared/snapshotTypes';
 import { trayPresentation } from '../shared/status';
@@ -67,6 +69,7 @@ import { type McpController } from './mcp/controller';
 import { OwaError } from './owa/errors';
 import { changedFields } from './owa/ewsMeeting';
 import { confirmAccountRecovery } from './accountRecovery';
+import { CalendarAccounts } from './calendarAccounts';
 import { CalendarService } from './calendarService';
 import { confirmCertificateTrust } from './certificateConsent';
 import { HotkeyController, hotkeyJoinUrl } from './hotkeys';
@@ -77,7 +80,14 @@ import { installRendererProtocol, registerRendererScheme } from './rendererProto
 import { afterRendererReady } from './rendererReady';
 import { hardenSession, hardenWebContents, isTrustedSender } from './security';
 import { isFirstRun } from './store';
-import { closeAllToasts, showToast, toastsSupported } from './toasts';
+import {
+    closeAccountToasts,
+    closeAllToasts,
+    closeReminderToast,
+    hasReminderToast,
+    showToast,
+    toastsSupported,
+} from './toasts';
 import { TrayPulse } from './trayPulse';
 import { drawTrayBitmap, TRAY_ICON_SIZE } from './trayRaster';
 import { UpdateChecker } from './updates';
@@ -175,12 +185,61 @@ let meetingMenuOpenedAt = 0;
 const MENU_GUARD_MS = 120_000;
 let service: CalendarService;
 let mcp: McpController;
+let accounts: CalendarAccounts | undefined;
+const windowAccounts = new WeakMap<Electron.WebContents, { id: string }>();
+
+function initializeCalendarRuntime() {
+    accounts = DEMO ? undefined : new CalendarAccounts();
+    service = accounts?.empty ?? new CalendarService(DEMO);
+    return accounts ?? service;
+}
+
+function calendarFor(sender?: Electron.WebContents) {
+    if (!accounts) return service;
+    const selected = sender && windowAccounts.get(sender);
+    return selected ? accounts.calendar(selected.id) : accounts.primary;
+}
+
+function calendarContext(sender: Electron.WebContents, source?: unknown) {
+    const calendar = calendarFor(sender);
+    const selected = windowAccounts.get(sender);
+    const revision = calendar.accountRevision;
+    if (accounts && source !== undefined && source !== (selected?.id ?? accounts.primaryId))
+        throw new Error('Аккаунт изменился: повторите действие');
+    const checkSelection = () => {
+        if (windowAccounts.get(sender) !== selected || calendarFor(sender) !== calendar)
+            throw new Error('Аккаунт изменился: повторите действие');
+    };
+    const check = () => {
+        checkSelection();
+        if (calendar.accountRevision !== revision)
+            throw new Error('Аккаунт изменился: повторите действие');
+    };
+    return { calendar, check, checkSelection, id: selected?.id ?? accounts?.primaryId };
+}
+
+function eventTarget(id: unknown) {
+    const local = parseId(id);
+    return accounts ? accounts.target(local) : { calendar: service, id: local };
+}
+
+function calendarEvents() {
+    return accounts?.events ?? service.events;
+}
+
+function calendarRevision() {
+    return accounts?.revision ?? service.accountRevision;
+}
+
+function syncCalendars(reason: 'manual' | 'auto' | 'popup') {
+    return accounts ? accounts.syncNow(reason) : service.syncNow(reason);
+}
 let reminders: ReminderScheduler;
 // System-wide key combinations (see hotkeys.ts); their handlers are the functions declared below.
 const hotkeys = new HotkeyController(
     {
         join: () => {
-            const url = hotkeyJoinUrl(service.events, service.settings.privacyMode);
+            const url = hotkeyJoinUrl(calendarEvents(), service.settings.privacyMode);
             if (url) void openExternal(url);
             else showPopup();
         },
@@ -273,9 +332,9 @@ function allowLink(url: string | undefined | null) {
 
 /** The links of the meetings as the windows see them now; recomputed only when the list changes. */
 function refreshOpenableLinks() {
-    if (service.events === linkedEvents) return;
-    linkedEvents = service.events;
-    for (const e of service.events) {
+    if (calendarEvents() === linkedEvents) return;
+    linkedEvents = calendarEvents();
+    for (const e of linkedEvents) {
         allowLink(e.joinUrl);
         if (e.location) for (const u of linksInText(e.location)) allowLink(u);
     }
@@ -286,26 +345,48 @@ function visibleEvents(events: CalendarEvent[]): CalendarEvent[] {
 }
 function snapshotState(): SnapshotState {
     refreshOpenableLinks();
+    const calendar = calendarFor();
+    const { sync, accountId } = accounts?.syncState ?? { sync: service.sync };
     return {
+        accounts: accounts?.summaries(service.settings.privacyMode),
+        primaryAccountId: accounts?.primaryId,
+        selectedAccountId: accounts?.primaryId,
+        syncAccountId: accountId,
         sync: service.settings.privacyMode
             ? {
-                  phase: service.sync.phase,
-                  lastSuccess: service.sync.lastSuccess,
-                  errorKind: service.sync.errorKind,
+                  phase: sync.phase,
+                  lastSuccess: sync.lastSuccess,
+                  errorKind: sync.errorKind,
               }
-            : service.sync,
-        settings: service.settings,
+            : sync,
+        settings: service.settings.privacyMode ? service.settings : calendar.settings,
         demo: DEMO,
         version: app.getVersion(),
         taskbarLight,
         logPath: logPath(),
-        noteIds: service.settings.privacyMode ? [] : service.noteIds(),
+        noteIds: service.settings.privacyMode ? [] : (accounts?.noteIds() ?? service.noteIds()),
         hasUnassignedNotes: service.hasUnassignedNotes(),
-        accountRecovery: service.accountRecovery,
+        accountRecovery: calendar.accountRecovery,
         participantGroups: service.settings.privacyMode
             ? { account: 'private', groups: [] }
-            : service.participantGroupState(),
+            : calendar.participantGroupState(),
         hotkeyProblems: hotkeys.problems,
+    };
+}
+
+function snapshotFor<T extends SnapshotState>(message: T, sender?: Electron.WebContents): T {
+    const selected = sender && windowAccounts.get(sender);
+    if (!accounts || !selected || !accounts.has(selected.id)) return message;
+    if (message.settings.privacyMode) return { ...message, selectedAccountId: selected.id };
+    const calendar = accounts.calendar(selected.id);
+    return {
+        ...message,
+        selectedAccountId: selected.id,
+        syncAccountId: selected.id,
+        settings: calendar.settings,
+        sync: calendar.sync,
+        accountRecovery: calendar.accountRecovery,
+        participantGroups: calendar.participantGroupState(),
     };
 }
 
@@ -313,18 +394,18 @@ const snapshotPublisher = new SnapshotPublisher();
 function snapshotSource() {
     return {
         state: snapshotState(),
-        events: service.events,
-        scope: snapshotScope(service.accountRevision, service.settings, uiLang()),
-        project: () => visibleEvents(service.events),
+        events: calendarEvents(),
+        scope: snapshotScope(calendarRevision(), service.settings, uiLang()),
+        project: () => visibleEvents(calendarEvents()),
     };
 }
-function snapshot() {
-    return snapshotPublisher.capture(snapshotSource(), true);
+function snapshot(sender?: Electron.WebContents) {
+    return snapshotFor(snapshotPublisher.capture(snapshotSource(), true), sender);
 }
 function broadcast() {
     const s = snapshotPublisher.capture(snapshotSource());
     for (const w of BrowserWindow.getAllWindows())
-        if (!w.isDestroyed()) w.webContents.send(IPC.snapshot, s);
+        if (!w.isDestroyed()) w.webContents.send(IPC.snapshot, snapshotFor(s, w.webContents));
     updateTrayMenu();
 }
 
@@ -396,7 +477,7 @@ function showPopup() {
     // A window that was released is built again: it appears once it has painted, not as an empty frame.
     if (fresh) win.once('ready-to-show', reveal);
     else reveal();
-    void service.syncNow('popup');
+    void syncCalendars('popup');
 }
 
 /**
@@ -413,7 +494,7 @@ function openMeetingMenu(win: BrowserWindow, eventId: string) {
     if (meetingMenuOpenedAt && Date.now() - meetingMenuOpenedAt < MENU_GUARD_MS) return; // one menu at a time
     if (!menuOpenings.allows(Date.now())) return;
     menuOpenings.take(Date.now());
-    const meeting = service.events.find((e) => e.id === eventId);
+    const meeting = calendarEvents().find((e) => e.id === eventId);
     if (!meeting) return; // gone with the last sync
     const menu = Menu.buildFromTemplate(
         meetingMenuItems(meeting, uiLang()).map((item) => ({
@@ -486,6 +567,8 @@ function openSettings() {
         return;
     }
     settingsWin = createSettings(service.settings.theme);
+    if (accounts?.primaryId)
+        windowAccounts.set(settingsWin.webContents, { id: accounts.primaryId });
     settingsWin.on('closed', () => {
         settingsWin = undefined;
         hotkeys.pause(false); // a recording left half-way must not leave the combinations off
@@ -506,11 +589,22 @@ function openSettingsForSetup() {
  * Opens the "Create meeting" window, or focuses it. With a prefill (already validated by the
  * caller) an open window starts over with it; without one an open window is left as the person has it.
  */
-function openCreateMeeting(prefill?: CreateMeetingPrefill) {
+function openCreateMeeting(prefill?: CreateMeetingPrefill, accountId = accounts?.primaryId) {
     hidePopup();
+    if (
+        createWin &&
+        !createWin.isDestroyed() &&
+        prefill !== undefined &&
+        accounts &&
+        windowAccounts.get(createWin.webContents)?.id !== accountId
+    ) {
+        createWin.close();
+    }
     if (createWin && !createWin.isDestroyed()) {
         if (prefill !== undefined) {
             pendingPrefill = prefill;
+            if (accountId) windowAccounts.set(createWin.webContents, { id: accountId });
+            createWin.webContents.send(IPC.snapshot, snapshot(createWin.webContents));
             createWin.webContents.send(IPC.createPrefill, prefill);
         }
         if (createWin.isMinimized()) createWin.restore();
@@ -520,6 +614,7 @@ function openCreateMeeting(prefill?: CreateMeetingPrefill) {
     }
     pendingPrefill = prefill ?? null;
     createWin = createMeetingWindow(service.settings.theme);
+    if (accountId) windowAccounts.set(createWin.webContents, { id: accountId });
     createWin.on('closed', () => {
         createWin = undefined;
         pendingPrefill = null;
@@ -536,6 +631,8 @@ function openAvailability() {
         return;
     }
     availabilityWin = createAvailability(service.settings.theme);
+    if (accounts?.primaryId)
+        windowAccounts.set(availabilityWin.webContents, { id: accounts.primaryId });
     availabilityWin.on('closed', () => {
         availabilityWin = undefined;
     });
@@ -551,6 +648,7 @@ function openStats() {
         return;
     }
     statsWin = createStats(service.settings.theme);
+    if (accounts?.primaryId) windowAccounts.set(statsWin.webContents, { id: accounts.primaryId });
     statsWin.on('closed', () => {
         statsWin = undefined;
     });
@@ -609,21 +707,25 @@ function showReminderWindow(events: CalendarEvent[]) {
     }
 }
 
+let toastReminderEvents: CalendarEvent[] = [];
+
 function showReminder(events: CalendarEvent[]) {
     if (reminderAsToast()) {
         // The link the button is labelled with, kept as it was when the toast was written. A sticky
         // notification can wait a long time, and the organizer can change the meeting meanwhile: the
         // button must never open a link the person was not shown. If it changed, the window opens instead.
         const advertised = joinUrlForActions(events[0]);
+        toastReminderEvents = events;
         const shown = showToast(
             reminderToast(visibleEvents(events), new Date(), uiLang()),
             {
                 onAction: (id, minutes) => {
+                    if (toastReminderEvents !== events) return;
+                    toastReminderEvents = [];
                     switch (id) {
                         case 'join': {
-                            const current =
-                                service.events.find((e) => e.id === events[0].id) ?? events[0];
-                            const url = joinUrlForActions(current);
+                            const current = calendarEvents().find((e) => e.id === events[0].id);
+                            const url = current && joinUrlForActions(current);
                             if (url && advertised && url === advertised) void openExternal(url);
                             else openMeeting(events[0].id);
 
@@ -639,15 +741,41 @@ function showReminder(events: CalendarEvent[]) {
                         // No default
                     }
                 },
-                onClick: () => openMeeting(events.length === 1 ? events[0].id : undefined),
+                onClick: () => {
+                    if (toastReminderEvents !== events) return;
+                    toastReminderEvents = [];
+                    openMeeting(events.length === 1 ? events[0].id : undefined);
+                },
                 // Windows refused the notification: the person must not miss the meeting because of it.
-                onFailed: () => showReminderWindow(events),
+                onFailed: () => {
+                    if (toastReminderEvents === events) {
+                        toastReminderEvents = [];
+                        showReminderWindow(events);
+                    }
+                },
             },
             { sticky: true, group: 'reminder' },
         );
         if (shown) return;
+        toastReminderEvents = [];
     }
     showReminderWindow(events);
+}
+
+function dropAccountNotifications(id: string) {
+    closeAccountToasts(id);
+    const windowEvents = pendingReminder?.events;
+    if (windowEvents?.some((event) => event.accountId === id)) {
+        const remaining = windowEvents.filter((event) => event.accountId !== id);
+        if (remaining.length) showReminderWindow(remaining);
+        else reminderWin?.close();
+    }
+    if (!toastReminderEvents.some((event) => event.accountId === id)) return;
+    const remaining = toastReminderEvents.filter((event) => event.accountId !== id);
+    toastReminderEvents = [];
+    if (!hasReminderToast()) return;
+    closeReminderToast();
+    if (remaining.length) showReminder(remaining);
 }
 
 /** Brings the widget forward, on one meeting when it is known. */
@@ -655,13 +783,9 @@ function openMeeting(eventId?: string) {
     showPopup();
     if (!eventId || !popup) return;
     const win = popup;
-    const revision = service.accountRevision;
+    const revision = calendarRevision();
     afterRendererReady(win.webContents, () => {
-        if (
-            win.isDestroyed() ||
-            service.accountRevision !== revision ||
-            service.settings.privacyMode
-        )
+        if (win.isDestroyed() || calendarRevision() !== revision || service.settings.privacyMode)
             return;
         win.webContents.send(IPC.openEvent, eventId);
     });
@@ -696,7 +820,8 @@ function uiLang(): 'ru' | 'en' {
 async function acceptFromToast(eventId: string) {
     const text = doneText(uiLang());
     try {
-        await service.respond(eventId, 'accept');
+        const { calendar, id } = eventTarget(eventId);
+        await calendar.respond(id, 'accept');
         showToast({ title: text.accepted, body: '', buttons: [] }, {}, { silent: true });
     } catch (e) {
         log.warn(`accept from notification failed: ${describeError(e)}`);
@@ -747,8 +872,7 @@ function notifyChanges(changes: EventChange[]) {
                     if (id === 'accept' && eventId) void acceptFromToast(eventId);
                 },
             },
-            // A change is news, not an alarm: it can go quietly to the notification centre after a while.
-            {},
+            { accountId: fresh.find((change) => change.event.id === eventId)?.event.accountId },
         );
     }
 }
@@ -757,7 +881,7 @@ function notifyChanges(changes: EventChange[]) {
 
 function updateTrayMenu() {
     if (!tray) return;
-    const join = service.settings.privacyMode ? [] : joinCandidates(service.events, new Date());
+    const join = service.settings.privacyMode ? [] : joinCandidates(calendarEvents(), new Date());
     tray.setContextMenu(
         Menu.buildFromTemplate([
             { label: 'Открыть', click: showPopup, ...hotkeys.hint('open') },
@@ -779,7 +903,7 @@ function updateTrayMenu() {
             {
                 label: 'Обновить',
                 click: () => {
-                    void service.syncNow('manual');
+                    void syncCalendars('manual');
                 },
             },
             { label: 'Найти свободное время…', click: openAvailability },
@@ -839,7 +963,7 @@ const bitmapImage = (bgra: Buffer) =>
 function refreshTray(now = new Date()) {
     if (!tray || tray.isDestroyed() || !service) return;
     const lang = trayLang();
-    const p = trayPresentation(visibleEvents(service.events), now);
+    const p = trayPresentation(visibleEvents(calendarEvents()), now);
     const tooltip = tooltipFor(p, dict(lang), lang).slice(0, 127);
     lastTooltip = tooltip;
     const key = [p.kind, p.badge ?? '', p.invites, p.pulseUntil ?? '', taskbarLight, tooltip].join(
@@ -890,13 +1014,13 @@ async function askNative(
 ): Promise<number> {
     if (modalOpen) throw new Error('Уже открыто окно подтверждения — ответьте на него');
     modalOpen = true;
-    const revision = service.accountRevision;
+    const revision = calendarRevision();
     try {
         const { response } =
             parent && !parent.isDestroyed()
                 ? await dialog.showMessageBox(parent, options)
                 : await dialog.showMessageBox(options);
-        if (revision !== service.accountRevision)
+        if (revision !== calendarRevision())
             throw new Error('Аккаунт изменился: повторите действие');
         return response;
     } finally {
@@ -954,7 +1078,10 @@ async function confirmAuthenticationRetry(parent?: BrowserWindow): Promise<boole
  * "Send the invitations?" in a native dialog built from the validated meeting. The window cannot
  * click it. The default (and Esc) is "Cancel". Returns true only when the person pressed "Send".
  */
-async function confirmInvitations(meeting: CreateMeetingInput): Promise<boolean> {
+async function confirmInvitations(
+    meeting: CreateMeetingInput,
+    accountId?: string,
+): Promise<boolean> {
     // Development only (never in an installed build): the end-to-end test runs under a bare X server
     // where nobody can click a native dialog, so it asks for the "Send" answer by environment variable.
     if (!app.isPackaged && process.env.OWA_E2E_AUTOCONFIRM === '1') {
@@ -964,13 +1091,15 @@ async function confirmInvitations(meeting: CreateMeetingInput): Promise<boolean>
         return true;
     }
     const text = meetingConfirmText(meeting, uiLang());
+    const account = accounts?.summaries().find((entry) => entry.id === accountId);
+    const source = uiLang() === 'en' ? 'Exchange account' : 'Аккаунт Exchange';
     const parent = createWin && !createWin.isDestroyed() ? createWin : undefined;
     const answer = await askNative(
         {
             type: 'question',
             title: 'OWA Widget',
             message: text.message,
-            detail: text.detail,
+            detail: account ? [source, account.label, '', text.detail].join('\n') : text.detail,
             buttons: text.buttons,
             defaultId: 0,
             cancelId: 0,
@@ -1059,69 +1188,134 @@ async function confirmCancellation(before: MeetingBefore, count: number): Promis
 }
 
 function registerIpc() {
+    const accountSettings = (e: Electron.IpcMainInvokeEvent) => {
+        if (!accounts || !settingsWin || BrowserWindow.fromWebContents(e.sender) !== settingsWin)
+            throw new Error('Откройте настройки аккаунтов');
+        return accounts;
+    };
+    handle(IPC.addAccount, async (e, raw: AccountDraft) => {
+        const registry = accountSettings(e);
+        const draft = accountDraft(raw);
+        if (
+            !(await confirmServerChange(
+                serverKey(draft.settings.serverUrl),
+                settingsWin ?? undefined,
+            ))
+        )
+            throw new Error('Подключение отменено');
+        accountSettings(e);
+        const id = registry.add(raw);
+        windowAccounts.set(e.sender, { id });
+        e.sender.send(IPC.snapshot, snapshot(e.sender));
+        return id;
+    });
+    handle(IPC.renameAccount, (e, id, label, color) => accountSettings(e).rename(id, label, color));
+    handle(IPC.setPrimaryAccount, (e, id) => accountSettings(e).setPrimary(id));
+    handle(IPC.removeAccount, async (e, id) => {
+        const registry = accountSettings(e);
+        const profile = registry.profile(id);
+        const en = uiLang() === 'en';
+        const label = profile.label || profile.settings.username || profile.settings.serverUrl;
+        const answer = await askNative(
+            {
+                type: 'warning',
+                title: 'OWA Widget',
+                message: en
+                    ? 'Remove this account from OWA Widget?'
+                    : 'Удалить этот аккаунт из OWA Widget?',
+                detail:
+                    label +
+                    (en
+                        ? '\nIts local data and MCP access will be removed.'
+                        : '\nЛокальные данные и доступ MCP будут удалены.'),
+                buttons: en ? ['Cancel', 'Remove'] : ['Отмена', 'Удалить'],
+                defaultId: 0,
+                cancelId: 0,
+                noLink: true,
+            },
+            settingsWin ?? undefined,
+        );
+        if (answer !== 1) return;
+        accountSettings(e);
+        windowAccounts.delete(e.sender);
+        registry.remove(profile.id);
+    });
+    handle(IPC.setAccountVisible, (_e, id, visible) => accounts?.setVisible(id, visible));
+    handle(IPC.showAllAccounts, () => accounts?.showAll());
+    handle(IPC.selectAccount, (e, id) => {
+        if (!accounts) return;
+        const win = BrowserWindow.fromWebContents(e.sender);
+        if (
+            !win ||
+            ![settingsWin, createWin, availabilityWin, statsWin].includes(win) ||
+            (win === createWin && pendingPrefill?.editId)
+        )
+            throw new Error('Выбор аккаунта недоступен');
+        const profile = accounts.profile(id);
+        windowAccounts.set(e.sender, { id: profile.id });
+        e.sender.send(IPC.snapshot, snapshot(e.sender));
+    });
     const updates = new UpdateChecker();
     const groupWrites = new SlidingWindow(30, 60_000);
     const groupWrite = () => {
         if (!groupWrites.allows(Date.now())) throw new Error('Слишком часто: подождите секунду');
         groupWrites.take(Date.now());
     };
-    handle(IPC.recoverAccountData, (_e, owner) =>
-        confirmAccountRecovery(service, owner, askNative, uiLang()),
+    handle(IPC.recoverAccountData, (e, owner) => {
+        const { calendar, check } = calendarContext(e.sender);
+        return confirmAccountRecovery(
+            calendar,
+            owner,
+            async (options) => {
+                const reply = await askNative(options);
+                check();
+                return reply;
+            },
+            uiLang(),
+        );
+    });
+    handle(IPC.getMcpState, (e) =>
+        mcp.state(windowAccounts.get(e.sender)?.id ?? accounts?.primaryId),
     );
-    handle(IPC.getMcpState, () => mcp.state());
-    handle(IPC.setMcpAccess, (_e, access: unknown) => mcp.setAccess(access));
+    handle(IPC.setMcpAccess, (e, access: unknown) => {
+        if (accounts) accountSettings(e);
+        const selected = windowAccounts.get(e.sender)?.id ?? accounts?.primaryId;
+        return mcp.setAccess(access, selected, calendarContext(e.sender).check);
+    });
     handle(IPC.setPrivacyMode, (_e, enabled) => service.setPrivacyMode(enabled));
-    handle(IPC.saveParticipantGroup, (_e, account, input) => {
+    handle(IPC.saveParticipantGroup, (e, account, input) => {
         groupWrite();
-        return service.saveParticipantGroup(account, input);
+        return calendarFor(e.sender).saveParticipantGroup(account, input);
     });
-    handle(IPC.deleteParticipantGroup, (_e, account, id) => {
+    handle(IPC.deleteParticipantGroup, (e, account, id) => {
         groupWrite();
-        service.deleteParticipantGroup(account, id);
+        calendarFor(e.sender).deleteParticipantGroup(account, id);
     });
-    handle(IPC.getSupportReport, () =>
+    handle(IPC.getSupportReport, (e) =>
         supportReport(
             app.getVersion(),
             process.platform,
             process.arch,
             DEMO,
-            service.sync,
-            service.lastDiagnostics,
+            calendarFor(e.sender).sync,
+            calendarFor(e.sender).lastDiagnostics,
         ),
     );
     handle(IPC.checkForUpdates, () => updates.check(app.getVersion()));
     handle(IPC.openUpdatePage, () => updates.open());
-    // Everything about creating a meeting goes through this one gate (see meetingGate.ts for the order).
-    // The gate runs one meeting at a time: the account is noted before the dialog opens and checked
-    // after it, so switching accounts meanwhile sends nothing from the other one.
-    let createRevision = -1;
-    const meetingGate = new MeetingGate({
-        confirm: (m) => {
-            createRevision = service.accountRevision;
-            return confirmInvitations(m);
-        },
-        deliver: async (m) => {
-            if (service.accountRevision !== createRevision)
-                throw new Error('Аккаунт изменился во время подтверждения: встреча не отправлена');
-            await service.createMeeting(m);
-            // The meeting is sent: remembering its people must never make it look failed (and resent).
-            try {
-                service.local.rememberMeeting(m, service.events);
-            } catch (e) {
-                log.warn(`recent: not saved: ${describeError(e)}`);
-            }
-        },
-    });
+    // All calendar writes share the same native confirmation and rate limits.
+    const meetingGate = new MeetingGate();
     // A page that asks the directory more than this is not someone typing.
     const peopleLookups = new SlidingWindow(60, 60_000);
 
-    handle(IPC.getSnapshot, () => snapshot());
-    handle(IPC.syncNow, () => service.syncNow('manual'));
+    handle(IPC.getSnapshot, (e) => snapshot(e.sender));
+    handle(IPC.syncNow, () => syncCalendars('manual'));
     handle(IPC.getDetails, async (_e, id) => {
         if (service.settings.privacyMode) return { attendees: [] };
-        const revision = service.accountRevision;
-        const details = await service.details(parseId(id));
-        if (revision !== service.accountRevision)
+        const target = eventTarget(id);
+        const revision = target.calendar.accountRevision;
+        const details = await target.calendar.details(target.id);
+        if (revision !== target.calendar.accountRevision)
             throw new Error('Аккаунт изменился: откройте карточку заново');
         if (service.settings.privacyMode) return { attendees: [] };
         // The description is served to the window, which makes its links clickable: the same links, and
@@ -1129,7 +1323,10 @@ function registerIpc() {
         if (details?.bodyText) for (const u of linksInText(details.bodyText)) allowLink(u);
         return details;
     });
-    handle(IPC.respond, (_e, id, action) => service.respond(parseId(id), parseRsvpAction(action)));
+    handle(IPC.respond, (_e, raw, action) => {
+        const { calendar, id } = eventTarget(raw);
+        return calendar.respond(id, parseRsvpAction(action));
+    });
     handle(IPC.openUrl, async (_e, url) => {
         const arg = parseUrlArg(url);
         const safe = arg ? safeUrl(arg) : null;
@@ -1144,20 +1341,29 @@ function registerIpc() {
         const win = BrowserWindow.fromWebContents(e.sender);
         if (win && (win === popup || win === calendarWin)) openMeetingMenu(win, eventId);
     });
-    handle(IPC.saveSettings, async (e, update) => {
-        const next = service.serverChangeOf(update);
+    handle(IPC.saveSettings, async (e, update, source) => {
+        if (accounts) accountSettings(e);
+        const { calendar, check } = calendarContext(e.sender, source);
+        const next = calendar.serverChangeOf(update);
         if (
             next &&
             !(await confirmServerChange(next, BrowserWindow.fromWebContents(e.sender) ?? undefined))
         ) {
             throw new Error('Смена сервера отменена: адрес не изменён');
         }
-        return service.applySettings(update as SettingsUpdate, () =>
-            confirmAuthenticationRetry(BrowserWindow.fromWebContents(e.sender) ?? undefined),
-        );
+        check();
+        return calendar.applySettings(update as SettingsUpdate, async () => {
+            const allowed = await confirmAuthenticationRetry(
+                BrowserWindow.fromWebContents(e.sender) ?? undefined,
+            );
+            check();
+            return allowed;
+        });
     });
-    handle(IPC.testConnection, async (e, update) => {
-        const next = service.serverChangeOf(update);
+    handle(IPC.testConnection, async (e, update, source) => {
+        if (accounts) accountSettings(e);
+        const { calendar, check, checkSelection } = calendarContext(e.sender, source);
+        const next = accounts ? null : calendar.serverChangeOf(update);
         if (
             next &&
             !(await confirmServerChange(next, BrowserWindow.fromWebContents(e.sender) ?? undefined))
@@ -1167,40 +1373,67 @@ function registerIpc() {
                 message: 'Проверка отменена: подключение к новому серверу не подтверждено',
             };
         }
-        return service.testConnection(
+        check();
+        const result = await calendar.testConnection(
             update as SettingsUpdate,
             (progress) => {
-                if (!e.sender.isDestroyed()) e.sender.send(IPC.connectionProgress, progress);
+                if (e.sender.isDestroyed()) return;
+                try {
+                    check();
+                } catch {
+                    return;
+                }
+                e.sender.send(IPC.connectionProgress, progress);
             },
-            () => confirmAuthenticationRetry(BrowserWindow.fromWebContents(e.sender) ?? undefined),
+            async () => {
+                const allowed = await confirmAuthenticationRetry(
+                    BrowserWindow.fromWebContents(e.sender) ?? undefined,
+                );
+                check();
+                return allowed;
+            },
         );
+        checkSelection();
+        return result;
     });
-    handle(IPC.trustCertificate, async (e, fp) => {
+    handle(IPC.trustCertificate, async (e, fp, accountId) => {
         if (!isFingerprint(fp)) throw new Error('Недопустимый отпечаток');
-        const approved = await confirmCertificateTrust(service, fp, (options) =>
+        const registry = accounts;
+        const target =
+            registry && accountId !== undefined
+                ? registry.calendar(registry.profile(accountId).id)
+                : undefined;
+        const context = target ? undefined : calendarContext(e.sender);
+        const source = target ?? context!.calendar;
+        const approved = await confirmCertificateTrust(source, fp, (options) =>
             askNative(options, BrowserWindow.fromWebContents(e.sender) ?? undefined),
         );
-        if (approved) await service.trustCertificate(approved);
+        context?.check();
+        if (approved) await source.trustCertificate(approved);
     });
-    handle(IPC.forgetCertificate, () => service.forgetCertificate());
-    handle(IPC.clearCache, () => service.clearCache());
+    handle(IPC.forgetCertificate, (e) => calendarFor(e.sender).forgetCertificate());
+    handle(IPC.clearCache, (e) => calendarFor(e.sender).clearCache());
     // Notes are the person's own and stay on this computer: reading and writing them is local, and a
     // page that writes in a loop is slowed down rather than allowed to rewrite the encrypted file endlessly.
-    handle(IPC.getNote, (_e, id) =>
-        service.settings.privacyMode ? '' : service.getNote(parseId(id)),
-    );
+    handle(IPC.getNote, (_e, raw) => {
+        if (service.settings.privacyMode) return '';
+        const { calendar, id } = eventTarget(raw);
+        return calendar.getNote(id);
+    });
     handle(IPC.setNote, (_e, id, text) => {
         if (!noteWrites.allows(Date.now())) throw new Error('Слишком часто: подождите секунду');
         noteWrites.take(Date.now());
         if (typeof text !== 'string') throw new Error('Заметка должна быть текстом');
-        service.setNote(parseId(id), text);
+        const target = eventTarget(id);
+        target.calendar.setNote(target.id, text);
     });
-    handle(IPC.clearNotes, async () => {
-        const count = service.noteIds().length;
+    handle(IPC.clearNotes, async (e) => {
+        const { calendar, check } = calendarContext(e.sender);
+        const count = calendar.noteIds().length;
         if (count === 0) return 0;
-        const revision = service.accountRevision;
         const lang = uiLang();
-        if (!app.isPackaged && process.env.OWA_E2E_AUTOCONFIRM === '1') return service.clearNotes(); // development build only, like the other confirmations
+        if (!app.isPackaged && process.env.OWA_E2E_AUTOCONFIRM === '1')
+            return calendar.clearNotes(); // development build only, like the other confirmations
         const answer = await askNative({
             type: 'warning',
             title: 'OWA Widget',
@@ -1218,75 +1451,106 @@ function registerIpc() {
             noLink: true,
         });
         if (answer !== 1) return 0;
-        if (revision !== service.accountRevision)
-            throw new Error('Аккаунт изменился: повторите удаление заметок');
-        return service.clearNotes();
+        check();
+        return calendar.clearNotes();
     });
     handle(IPC.openLog, () => shell.showItemInFolder(logPath()));
     handle(IPC.openSettings, () => openSettings());
     handle(IPC.openWelcome, () => openWelcome());
     // The window's own "closed" handler remembers the tour and opens the settings when they are needed.
     handle(IPC.finishWelcome, () => welcomeWin?.close());
-    handle(IPC.openCreateMeeting, (_e, prefill) =>
+    handle(IPC.openCreateMeeting, (e, prefill) => {
+        const fromAvailability = availabilityWin?.webContents === e.sender;
+        if (fromAvailability) calendarFor(e.sender);
         openCreateMeeting(
             prefill === undefined || prefill === null ? undefined : parseCreatePrefill(prefill),
-        ),
-    );
+            (fromAvailability ? windowAccounts.get(e.sender)?.id : undefined) ??
+                accounts?.primaryId,
+        );
+    });
     handle(IPC.getCreatePrefill, () => pendingPrefill);
-    handle(IPC.resolvePeople, async (_e, query) => {
+    handle(IPC.resolvePeople, async (e, query, source) => {
         const q = parsePeopleQuery(query);
         if (!q || !peopleLookups.allows(Date.now())) return [];
         peopleLookups.take(Date.now());
-        return service.local.recent.keepNames(await service.resolvePeople(q));
+        const { calendar, check } = calendarContext(e.sender, source);
+        const people = await calendar.resolvePeople(q);
+        check();
+        return calendar.local.recent.keepNames(people);
     });
     // Only the settings page records combinations, so only it may let them go for a moment.
     handle(IPC.pauseHotkeys, (e, paused) => {
         if (BrowserWindow.fromWebContents(e.sender) === settingsWin) hotkeys.pause(paused === true);
     });
     // Local only: the people and places remembered for this account and the calendar already loaded.
-    handle(IPC.getFrequent, () =>
-        service.settings.privacyMode
+    handle(IPC.getFrequent, (e) => {
+        const calendar = calendarFor(e.sender);
+        return calendar.settings.privacyMode
             ? { people: [], places: [] }
-            : service.local.recent.frequent(service.events),
-    );
-    handle(IPC.forgetFrequent, () => service.local.recent.forget());
-    handle(IPC.createMeeting, async (_e, input) => {
+            : calendar.local.recent.frequent(calendar.events);
+    });
+    handle(IPC.forgetFrequent, (e) => calendarFor(e.sender).local.recent.forget());
+    handle(IPC.createMeeting, async (e, input, source) => {
         try {
-            const result = await meetingGate.submit(input);
+            const { calendar, check, id } = calendarContext(e.sender, source);
+            const result = await meetingGate.submit(input, {
+                confirm: (meeting) => {
+                    check();
+                    return confirmInvitations(meeting, id);
+                },
+                deliver: async (meeting) => {
+                    check();
+                    await calendar.createMeeting(meeting);
+                    try {
+                        check();
+                        calendar.local.rememberMeeting(meeting, calendar.events);
+                    } catch (error) {
+                        log.warn(`recent: not saved: ${describeError(error)}`);
+                    }
+                },
+            });
             log.info(
                 `createMeeting: ${result.status}${result.status === 'created' ? `, ${result.invited} invited` : ''}`,
             );
             return result;
-        } catch (e) {
+        } catch (cause) {
             // Counts and kinds only: what failed may quote what the person typed (an address), which is never logged.
             log.warn(
-                `createMeeting: failed (${e instanceof OwaError ? `${e.kind}${e.status ? `, HTTP ${e.status}` : ''}` : 'refused'})`,
+                `createMeeting: failed (${cause instanceof OwaError ? `${cause.kind}${cause.status ? `, HTTP ${cause.status}` : ''}` : 'refused'})`,
             );
-            throw e;
+            throw cause;
         }
     });
     handle(IPC.openEditMeeting, async (_e, id) => {
-        const before = await service.meetingBefore(parseId(id));
-        const event = service.events.find((x) => x.id === before.id);
-        openCreateMeeting({
-            editId: before.id,
-            editRecurring: event?.isRecurring === true,
-            title: before.title,
-            start: before.start,
-            end: before.end,
-            location: before.location,
-            body: before.body,
-            attendees: before.requiredAttendees,
-            optional: before.optionalAttendees,
-        });
+        const target = eventTarget(id);
+        const before = await target.calendar.meetingBefore(target.id);
+        const event = calendarEvents().find((item) => item.id === id);
+        openCreateMeeting(
+            {
+                editId: parseId(id),
+                editRecurring: event?.isRecurring === true,
+                title: before.title,
+                start: before.start,
+                end: before.end,
+                location: before.location,
+                body: before.body,
+                attendees: before.requiredAttendees,
+                optional: before.optionalAttendees,
+            },
+            event?.accountId,
+        );
     });
-    handle(IPC.editMeeting, async (_e, input) => {
+    handle(IPC.editMeeting, async (e, input) => {
         try {
             // Everything a change needs is worked out inside the gate: what the meeting is now, what differs,
             // and who would be told — so a window cannot describe a change that was never made.
             const result = await meetingGate.run(async () => {
                 const after = parseEditMeeting(input, new Date());
-                const before = await service.meetingBefore(after.id);
+                const { calendar, id } = eventTarget(after.id);
+                const context = calendarContext(e.sender);
+                if (calendar !== context.calendar) throw new Error('Аккаунт встречи изменился');
+                const before = await calendar.meetingBefore(id);
+                after.id = id;
                 const fields = changedFields(before, after);
                 if (!fields.length) throw new Error('Во встрече ничего не изменилось');
                 // Everyone who is invited now, plus anyone being removed: the server tells them all.
@@ -1303,18 +1567,19 @@ function registerIpc() {
                     recipients: told.size,
                     confirm: () => confirmChange(before, after, fields),
                     deliver: async () => {
-                        await service.updateMeeting(before, after, fields);
+                        context.check();
+                        await calendar.updateMeeting(before, after, fields);
                         return { status: 'updated', invited };
                     },
                 };
             });
             log.info(`editMeeting: ${result.status}`);
             return result;
-        } catch (e) {
+        } catch (cause) {
             log.warn(
-                `editMeeting: failed (${e instanceof OwaError ? `${e.kind}${e.status ? `, HTTP ${e.status}` : ''}` : 'refused'})`,
+                `editMeeting: failed (${cause instanceof OwaError ? `${cause.kind}${cause.status ? `, HTTP ${cause.status}` : ''}` : 'refused'})`,
             );
-            throw e;
+            throw cause;
         }
     });
     // An answer with words: the same gate as every other mail to other people (one at a time, limits,
@@ -1323,16 +1588,16 @@ function registerIpc() {
         try {
             const result = await meetingGate.run(async () => {
                 const reply = parseMeetingReply(raw);
-                const event = service.replyTarget(reply.eventId);
+                const { calendar, id } = eventTarget(reply.eventId);
+                const revision = calendar.accountRevision;
+                const event = calendar.replyTarget(id);
                 return {
                     recipients: 1,
                     confirm: () => confirmReply(event, reply),
                     deliver: async () => {
-                        await service.respond(
-                            reply.eventId,
-                            reply.action,
-                            replyBody(event, reply, uiLang()),
-                        );
+                        if (calendar.accountRevision !== revision)
+                            throw new Error('Аккаунт изменился');
+                        await calendar.respond(id, reply.action, replyBody(event, reply, uiLang()));
                         return { status: 'replied', invited: 1 };
                     },
                 };
@@ -1349,13 +1614,17 @@ function registerIpc() {
     handle(IPC.cancelMeeting, async (_e, id) => {
         try {
             const result = await meetingGate.run(async () => {
-                const before = await service.meetingBefore(parseId(id));
+                const target = eventTarget(id);
+                const revision = target.calendar.accountRevision;
+                const before = await target.calendar.meetingBefore(target.id);
                 const count = before.requiredAttendees.length + before.optionalAttendees.length;
                 return {
                     recipients: count,
                     confirm: () => confirmCancellation(before, count),
                     deliver: async () => {
-                        await service.cancelMeeting(before);
+                        if (target.calendar.accountRevision !== revision)
+                            throw new Error('Аккаунт изменился');
+                        await target.calendar.cancelMeeting(before);
                         return { status: 'cancelledMeeting', invited: count };
                     },
                 };
@@ -1372,18 +1641,32 @@ function registerIpc() {
     handle(IPC.openAvailability, () => openAvailability());
     handle(IPC.openCalendar, (_e, raw) => {
         const selection = parseCalendarSelection(raw);
-        if (selection.eventId && !service.events.some((event) => event.id === selection.eventId))
+        if (selection.eventId && !calendarEvents().some((event) => event.id === selection.eventId))
             throw new Error('Встреча не найдена: обновите календарь');
         openCalendar(selection);
     });
     handle(IPC.getCalendarSelection, () => pendingCalendarSelection);
     // Validated here, whatever the page sent: at most 20 plain addresses, a window of at most 14 days.
-    handle(IPC.getAvailability, (_e, request) =>
-        service.availability(parseAvailabilityRequest(request)),
-    );
+    handle(IPC.getAvailability, async (e, raw, source) => {
+        const request = parseAvailabilityRequest(raw);
+        const { calendar, check } = calendarContext(e.sender, source);
+        const revision = calendarRevision();
+        const result = await (accounts
+            ? accounts.availability(calendar, request)
+            : calendar.availability(request));
+        check();
+        if (revision !== calendarRevision())
+            throw new Error('Аккаунты изменились: повторите поиск');
+        return result;
+    });
     handle(IPC.openStats, () => openStats());
     // Validated here, whatever the page sent: a period of at most 60 days, not far from today.
-    handle(IPC.getStatsEvents, (_e, request) => service.statsEvents(parseStatsRequest(request)));
+    handle(IPC.getStatsEvents, async (e, request, source) => {
+        const { calendar, check } = calendarContext(e.sender, source);
+        const result = await calendar.statsEvents(parseStatsRequest(request));
+        check();
+        return result;
+    });
     handle(IPC.closeWindow, (e) => {
         const win = BrowserWindow.fromWebContents(e.sender);
         if (win === popup) hidePopup();
@@ -1460,7 +1743,7 @@ void app.whenReady().then(async () => {
     installRendererProtocol();
     hardenSession();
     const firstRun = isFirstRun();
-    service = new CalendarService(DEMO);
+    const lifecycle = initializeCalendarRuntime();
     nativeTheme.themeSource = service.settings.theme;
 
     registerIpc();
@@ -1470,31 +1753,52 @@ void app.whenReady().then(async () => {
     tray.on('click', togglePopup);
     updateTrayMenu();
 
-    service.on('changed', broadcast);
+    lifecycle.on('changed', broadcast);
     // The icon follows the clock: once the calendar is known, whenever it changes, and every few seconds.
-    service.on('changed', () => refreshTray());
+    lifecycle.on('changed', () => refreshTray());
     setInterval(() => refreshTray(), 15_000);
     refreshTray();
-    service.on('changes', notifyChanges);
-    service.on('cacheCleared', () => toldChanges.clear());
-    service.on('accountChanged', () => {
+    lifecycle.on('changes', notifyChanges);
+    lifecycle.on('cacheCleared', () => toldChanges.clear());
+    const forgetOpenMeetings = (id?: string) => {
         // No selected card, search result, reminder or draft from the previous identity stays on screen.
         cancelPopupRelease();
-        pendingPrefill = null;
-        pendingCalendarSelection = null;
-        pendingReminder = null;
-        closeAllToasts();
+        if (!id || (createWin && windowAccounts.get(createWin.webContents)?.id === id))
+            pendingPrefill = null;
+        if (
+            !id ||
+            (pendingCalendarSelection?.eventId &&
+                !calendarEvents().some((event) => event.id === pendingCalendarSelection?.eventId))
+        )
+            pendingCalendarSelection = null;
+        if (id) {
+            dropAccountNotifications(id);
+        } else {
+            pendingReminder = null;
+            toastReminderEvents = [];
+            closeAllToasts();
+        }
         for (const win of [popup, calendarWin, createWin, availabilityWin, statsWin, reminderWin]) {
-            if (win && !win.isDestroyed()) win.close();
+            if (
+                win &&
+                !win.isDestroyed() &&
+                (!id || windowAccounts.get(win.webContents)?.id === id)
+            )
+                win.close();
         }
         openableLinks.clear();
         linkedEvents = undefined;
-        reminders?.reset();
-    });
+        if (!id) reminders?.reset();
+    };
+    lifecycle.on('accountChanged', accounts ? forgetOpenMeetings : () => forgetOpenMeetings());
+    accounts?.on('removed', forgetOpenMeetings);
     readTaskbarTheme();
     nativeTheme.on('updated', readTaskbarTheme);
-    service.on('settings', (prev: AppSettings, next: AppSettings) => {
-        if (!prev.privacyMode && next.privacyMode) closeAllToasts();
+    lifecycle.on('settings', (prev: AppSettings, next: AppSettings) => {
+        if (!prev.privacyMode && next.privacyMode) {
+            toastReminderEvents = [];
+            closeAllToasts();
+        }
         nativeTheme.themeSource = next.theme;
         if (prev.popupSize !== next.popupSize && popup) {
             const { width, height } = popupSize(next.popupSize);
@@ -1504,16 +1808,17 @@ void app.whenReady().then(async () => {
         refreshTray();
         hotkeys.apply(next.hotkeys);
     });
-    service.start();
+    lifecycle.start();
     hotkeys.apply(service.settings.hotkeys);
     mcp = await createAppMcp(
         service,
         async (options) => (await askNative(options, settingsWin ?? undefined)) === 1,
         () => uiLang() === 'en',
+        accounts,
     );
 
     reminders = new ReminderScheduler(
-        () => service.events,
+        calendarEvents,
         () => service.settings.reminderMinutes,
         showReminder,
     );
@@ -1523,11 +1828,11 @@ void app.whenReady().then(async () => {
 
     powerMonitor.on('resume', () =>
         setTimeout(() => {
-            void service.syncNow('auto');
+            void syncCalendars('auto');
         }, 5000),
     );
     powerMonitor.on('unlock-screen', () => {
-        void service.syncNow('auto');
+        void syncCalendars('auto');
     });
 
     // Smoke test for CI / local checks: render the popup through the real preload bridge, save a PNG, exit.
@@ -1631,7 +1936,7 @@ void app.whenReady().then(async () => {
 
     // First launch: show the prefilled server address so the person can confirm or change it, and say
     // where the app lives, because Windows 11 hides new tray icons behind the "^" overflow button.
-    const setupNeeded = (firstRun || !service.settings.account.serverUrl) && !DEMO;
+    const setupNeeded = (firstRun || !calendarFor().settings.account.serverUrl) && !DEMO;
     // The very first launch starts with the four-step tour; its last step opens the settings. Someone
     // who skips it lands in the settings all the same, because without a server there is nothing to show.
     // Only a genuinely first launch: an update must not greet people who have been using the app for weeks.

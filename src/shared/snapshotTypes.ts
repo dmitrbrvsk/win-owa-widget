@@ -1,3 +1,4 @@
+import { type AccountSummary } from './accounts';
 import { type HotkeyAction } from './hotkeys';
 import {
     type AppSettings,
@@ -7,6 +8,10 @@ import {
 } from './types';
 
 export interface Snapshot {
+    accounts?: AccountSummary[];
+    primaryAccountId?: string;
+    selectedAccountId?: string;
+    syncAccountId?: string;
     events: CalendarEvent[];
     sync: SyncState;
     settings: AppSettings;
